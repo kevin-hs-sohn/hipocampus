@@ -1,5 +1,10 @@
-# WORKING.md — Active Tasks
-
-Hot context: 2-5 currently active tasks. Update after every task.
+# Active Tasks
 
 (no active tasks)
+
+<!-- Format per task:
+## [Task Name]
+- Status: in-progress | blocked | completed
+- Domain: default
+- Progress: brief description
+-->

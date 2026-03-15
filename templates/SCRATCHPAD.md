@@ -1,9 +1,10 @@
-# SCRATCHPAD
+# Scratchpad
 
-Warm context for all active tasks. Update after every task. Keep under ~150 lines.
+## Current State
+<!-- What's happening right now -->
 
-## Global
-### Cross-Task Lessons
-(none yet)
-### Pending Decisions
-(none)
+## Cross-Task Lessons
+<!-- Patterns that apply across tasks -->
+
+## Pending Decisions
+<!-- Unresolved items needing attention -->

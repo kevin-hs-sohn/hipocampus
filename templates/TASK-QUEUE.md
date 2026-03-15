@@ -1,7 +1,7 @@
 # Task Queue
 
-## Queued Tasks
-(no tasks queued)
+## Queued
+<!-- task description — context sufficient to start after session reset -->
 
 ## Completed
-(none)
+<!-- task description — date completed -->
