@@ -7,29 +7,15 @@
 Long-term memory with two sections: Core (frozen) and Adaptive (compactable).
 
 ```markdown
-# MEMORY.md — Long-Term Memory
-
-APPEND ONLY — add new entries at the end of each section. Never rewrite existing entries.
+# Long-Term Memory
 
 ## Core (Static) — DO NOT compact or remove
-
-These entries survive every compaction cycle. Only update when facts change.
-
-### Identity & Config
-(User name, timezone, language, role, accounts, credentials received — last 4 chars only)
-
-### Rules & Preferences
-(User decisions, chosen approaches, communication preferences — "user prefers X over Y because Z")
+<!-- User basics, project setup, immutable rules -->
+<!-- Agent: append here. Never modify or delete existing entries. -->
 
 ## Adaptive (Dynamic) — Subject to compaction
-
-These entries evolve per session. During compaction cycles, summarize or prune oldest entries first.
-
-### Lessons Learned
-(Mistakes made, patterns discovered, things that worked/didn't — prevent repeating errors)
-
-### Active Context
-(Ongoing projects, recurring topics, things to follow up on, recent key decisions)
+<!-- Lessons learned, decisions, insights -->
+<!-- Agent: append here. Compactable when exceeds ~50 lines. -->
 ```
 
 **Rules:**
@@ -43,57 +29,62 @@ These entries evolve per session. During compaction cycles, summarize or prune o
 User profile built up over conversations.
 
 ```markdown
-# User
+# User Profile
 
-## Profile
-- Name: (user's name)
-- Timezone: (observe from message times or ask)
-- Language: (observe from conversation)
-- Role/Occupation: (learn from context)
+## Identity
+- Name:
+- Timezone:
+- Language:
 
-## Communication Style
-(observe and note: formal/informal, verbose/concise, language preferences)
-
-## Expertise & Interests
-(learn from conversations: technical depth, domain knowledge, hobbies)
-
-## Active Projects
-(track ongoing work the user mentions)
+## Role & Expertise
+- Role:
+- Expertise:
+- Communication style:
 
 ## Preferences
-(record explicit preferences: "user prefers X over Y")
+<!-- Agent: fill in as you learn about the user -->
 
-## Important Notes
-(critical context that affects how you assist this user)
+## Active Projects
+<!-- Agent: update as projects change -->
 ```
 
 ### SCRATCHPAD.md
 
-Active working state. Cleared/rotated frequently.
+Active working state. Domain-partitioned when multiple domains are configured.
 
 ```markdown
-# SCRATCHPAD
+# Scratchpad
 
-Warm context for all active tasks. Update after every task. Keep under ~150 lines.
+## Current State
+<!-- What's happening right now -->
 
-## Global
-### Cross-Task Lessons
-(none yet)
-### Pending Decisions
-(none)
+## Cross-Task Lessons
+<!-- Patterns that apply across tasks -->
+
+## Pending Decisions
+<!-- Unresolved items needing attention -->
 ```
+
+Target: ~150 lines. When exceeded, remove completed items.
 
 ### WORKING.md
 
-Current task tracking.
+Current task tracking. Domain-partitioned when multiple domains are configured.
 
 ```markdown
-# WORKING.md — Active Tasks
-
-Hot context: 2-5 currently active tasks. Update after every task.
+# Active Tasks
 
 (no active tasks)
+
+<!-- Format per task:
+## [Task Name]
+- Status: in-progress | blocked | completed
+- Domain: default
+- Progress: brief description
+-->
 ```
+
+Target: ~100 lines. When exceeded, remove completed tasks.
 
 ### TASK-QUEUE.md
 
@@ -102,12 +93,14 @@ Task backlog.
 ```markdown
 # Task Queue
 
-## Queued Tasks
-(no tasks queued)
+## Queued
+<!-- task description — context sufficient to start after session reset -->
 
 ## Completed
-(none)
+<!-- task description — date completed -->
 ```
+
+Target: ~50 lines. When exceeded, archive completed items.
 
 ### memory/ROOT.md
 

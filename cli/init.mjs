@@ -85,6 +85,22 @@ copyTemplate("MEMORY.md");
 copyTemplate("USER.md");
 copyTemplate("TASK-QUEUE.md");
 
+// Create ROOT.md stub if it doesn't exist
+const rootMdPath = join(CWD, "memory", "ROOT.md");
+if (!existsSync(rootMdPath)) {
+  const today = new Date().toISOString().slice(0, 10);
+  writeFileSync(rootMdPath, `---
+type: root
+status: tentative
+last-updated: ${today}
+months-covered: []
+---
+
+(No memory entries yet. This file will be populated automatically as conversations occur.)
+`);
+  console.log("  + memory/ROOT.md");
+}
+
 if (domains) {
   for (const domain of domains) {
     const upper = domain.toUpperCase();
@@ -103,10 +119,11 @@ const skillsBase = join(CWD, ".claude", "skills");
 
 for (const skill of skillNames) {
   const destDir = join(skillsBase, skill);
+  const destFile = join(destDir, "SKILL.md");
   const src = join(ROOT, "skills", skill, "SKILL.md");
-  if (existsSync(src)) {
+  if (existsSync(src) && !existsSync(destFile)) {
     if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
-    copyFileSync(src, join(destDir, "SKILL.md"));
+    copyFileSync(src, destFile);
     console.log(`  + skill: ${skill}`);
   }
 }
@@ -188,7 +205,7 @@ const PROTOCOL_BLOCK = `
 This project uses engram 3-tier memory. Follow \`.claude/skills/engram-core/SKILL.md\`.
 
 ### Session Start (mandatory)
-1. Read: MEMORY.md, USER.md, SCRATCHPAD.md, WORKING.md, TASK-QUEUE.md
+1. Read engram.config.json, then load domain-matched files per engram-core skill
 2. memory/ROOT.md is auto-loaded (full memory topic index)
 3. Read: most recent memory/daily/*.md (if exists)
 4. Check compaction triggers — run engram-compaction skill if needed
@@ -252,9 +269,9 @@ if (isOpenClaw) {
     const hbContent = readFileSync(heartbeatMd, "utf8");
     if (!hbContent.includes("engram-compaction")) {
       const compactionRotation = `
-### Memory Maintenance (every 24h)
-Run \`engram-compaction\` skill: build/update compaction tree (daily/weekly/monthly/root nodes).
-On the first heartbeat of each new day, process all pending compaction for the previous day(s).
+### Memory Maintenance (each heartbeat)
+Check compaction triggers and run \`engram-compaction\` skill when any condition is met.
+Builds/updates the compaction tree (daily/weekly/monthly/root nodes) as new data arrives.
 `;
       appendFileSync(heartbeatMd, compactionRotation);
       console.log("  + added compaction rotation to HEARTBEAT.md");
@@ -267,9 +284,19 @@ On the first heartbeat of each new day, process all pending compaction for the p
   if (existsSync(claudeMd)) {
     const content = readFileSync(claudeMd, "utf8");
     if (!hasEngram(content)) {
-      // Add @import at the top, protocol block at the bottom
-      const newContent = (content.includes("@memory/ROOT.md") ? content : rootImport + "\n" + content)
-        + "\n" + PROTOCOL_BLOCK;
+      let newContent = content;
+      // Insert @import after existing @ imports, or at the very top
+      if (!content.includes("@memory/ROOT.md")) {
+        const lines = content.split("\n");
+        let insertIdx = 0;
+        // Find the last @ import line to insert after it
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].startsWith("@")) insertIdx = i + 1;
+        }
+        lines.splice(insertIdx, 0, (insertIdx > 0 ? "" : "") + "@memory/ROOT.md", "");
+        newContent = lines.join("\n");
+      }
+      newContent += "\n" + PROTOCOL_BLOCK;
       writeFileSync(claudeMd, newContent);
       console.log("  + added ROOT.md import and engram protocol to CLAUDE.md");
     }

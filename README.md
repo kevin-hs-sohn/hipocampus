@@ -211,6 +211,14 @@ The memory system is formally specified in [`spec/`](./spec/):
 - [compaction.md](./spec/compaction.md) — 5-level compaction tree algorithm, smart thresholds, lifecycle
 - [checkpoint.md](./spec/checkpoint.md) — 7-step session start + 6-step end-of-task checkpoint protocol
 
+## Multi-Developer Projects
+
+`npx engram init` auto-appends memory files to `.gitignore` — personal memory (MEMORY.md, USER.md, SCRATCHPAD, WORKING, TASK-QUEUE, memory/, knowledge/, plans/) should not be committed.
+
+**What to commit:** `engram.config.json` and `.claude/skills/` — these define the shared project memory structure. All team members get the same domain partitioning and skill documents.
+
+**What not to commit:** Everything else is personal context. Each developer runs `npx engram init` to set up their own memory.
+
 ## Built at clawy.pro
 
 Engram is extracted from the memory system powering 80+ production AI bots at [clawy.pro](https://clawy.pro). It's been running in production since early 2026, handling thousands of conversations across diverse use cases.
