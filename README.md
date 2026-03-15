@@ -217,18 +217,75 @@ Engram installs three agent skills into `.claude/skills/`:
 - **engram-compaction** — Builds the 5-level compaction tree (daily/weekly/monthly/root). Smart thresholds: copy/concat below threshold, LLM keyword-dense summary above threshold. Fixed/tentative lifecycle management.
 - **engram-search** — Search guide: ROOT.md-based judgment ("do I know about this?"), hybrid vs BM25 selection, query construction, compaction tree fallback traversal.
 
-## Platform Behavior
+## How It Runs
 
-| | Claude Code | OpenClaw |
-|---|---|---|
-| Compaction trigger | Session Start Step 7 (lazy, agent-driven) | Scheduled heartbeat (proactive, platform-driven) |
-| Host file | CLAUDE.md | AGENTS.md |
-| ROOT.md auto-load mechanism | `@memory/ROOT.md` import in CLAUDE.md | `bootstrapFiles` in openclaw.json (or instruction fallback) |
-| Session lifetime | Transient (user-driven) | Persistent (20-min reset) |
-| Domain examples | web/backend/infra | daily-life/novel-writing/finance |
-| Skill behavior | Identical — same protocol, same algorithm |
+Engram has three execution mechanisms — all set up automatically by `npx engram init`. Nothing requires manual intervention after install.
 
-Both platforms run the same skills and the same compaction algorithm. The only difference is when the compaction cycle is initiated.
+### 1. Session Protocol (agent-driven)
+
+The engram-core skill instructs the agent what to do at session start and after every task. This is injected into CLAUDE.md (Claude Code) or AGENTS.md (OpenClaw) during init, so the agent follows it automatically.
+
+```
+Session Start (7 steps):
+  1. Read config → load domain-matched SCRATCHPAD/WORKING
+  2. Read MEMORY.md, USER.md, TASK-QUEUE.md
+  3. ROOT.md is auto-loaded (full memory topic index)
+  4. Read most recent daily compaction node
+  5. Check compaction triggers
+
+End-of-Task Checkpoint (6 steps):
+  1. Update SCRATCHPAD, MEMORY.md, USER.md
+  2. Append structured log to memory/YYYY-MM-DD.md
+  3. Update WORKING, TASK-QUEUE
+```
+
+The daily log is the critical piece — the agent writes a **structured session dump** for each topic: what was requested, what was done, decisions made, user feedback, data points, files created, and references. This is the compaction tree's source material.
+
+**Proactive flush:** The agent doesn't wait for task completion. During long conversations, it dumps to the daily log every ~20 messages or whenever a significant decision is made. This protects against context compression — if the platform compresses the conversation, undumped details are lost forever.
+
+### 2. Pre-Compaction Hook (platform-driven, automatic)
+
+Both Claude Code and OpenClaw compress conversation context when it gets too long. Engram hooks into this event to run `engram compact` automatically **before** compression happens.
+
+```
+Context fills up
+  → Platform fires pre-compaction event
+  → engram compact runs automatically:
+      1. Back up session transcript to memory/.session-transcript-YYYY-MM-DD.bak
+      2. Raw → Daily: copy verbatim if ≤200 lines, mark for LLM summary if larger
+      3. Daily → Weekly: concat if ≤300 lines combined, mark if larger
+      4. Weekly → Monthly: concat if ≤500 lines combined, mark if larger
+      5. Update ROOT.md timestamp, re-index qmd
+  → Platform compresses context
+  → Agent continues with fresh context, memory preserved on disk
+```
+
+This runs as a shell command — no LLM calls, no tokens spent. Files that exceed thresholds are marked `needs-summarization` for the agent to handle with the engram-compaction skill at next session start.
+
+| Platform | Hook | Registered by init |
+|----------|------|--------------------|
+| Claude Code | `PreCompact` in `.claude/settings.json` | Automatic |
+| OpenClaw | `preCompact` in `openclaw.json` | Automatic |
+
+### 3. ROOT.md Auto-Loading (platform-driven, automatic)
+
+ROOT.md must be in the agent's context at every session start — it's the "what I know I know" index that enables search-or-not decisions. Each platform has its own mechanism:
+
+| Platform | Mechanism | Registered by init |
+|----------|-----------|-------------------|
+| Claude Code | `@memory/ROOT.md` import in CLAUDE.md | Automatic |
+| OpenClaw | `memory/ROOT.md` in `bootstrapFiles` array | Automatic |
+
+### Summary
+
+| Mechanism | What it does | When it runs | Cost |
+|-----------|-------------|--------------|------|
+| Session protocol | Agent reads/writes memory files | Every session start + task completion | Agent follows skill instructions |
+| Pre-compaction hook | Mechanical compaction (copy/concat) | Before context compression | Zero LLM cost (shell script) |
+| ROOT.md auto-load | Topic index in system prompt | Every session start | ~3K tokens |
+| Proactive flush | Agent dumps context to daily log | Every ~20 messages in long sessions | Agent writes to file |
+
+Everything is set up by `npx engram init`. The user never has to think about memory management.
 
 ## Spec
 
