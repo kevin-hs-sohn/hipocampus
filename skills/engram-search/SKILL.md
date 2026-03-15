@@ -77,9 +77,20 @@ Always try qmd search first. Tree traversal is the fallback.
 - **Past decisions** — search daily logs and knowledge files
 - **Credentials/configs** — search before asking user
 
+## Without qmd
+
+If qmd is not installed (e.g., `--no-search` was used during init, or the user has a different RAG tool), the memory system still works:
+
+- **ROOT.md** is always available — use the Topics Index for "do I know about this?" judgment
+- **Tree traversal** works without qmd — just read the files directly: ROOT → monthly/ → weekly/ → daily/ → raw
+- **Manual file reads** — use `ls memory/daily/` to find files, then read them
+- Skip `qmd update` / `qmd search` commands — they will fail silently
+
+The compaction tree and checkpoint protocol are fully independent of qmd. Search is a convenience layer, not a requirement.
+
 ## After Modifying Files
 
-Always re-index after changing memory or knowledge files:
+If qmd is installed, re-index after changing memory or knowledge files:
 
 ```bash
 qmd update

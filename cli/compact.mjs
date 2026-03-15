@@ -230,7 +230,7 @@ for (const [month, weeks] of Object.entries(monthGroups)) {
   }
 }
 
-// ─── Step 4: Update ROOT.md Historical Summary ───
+// ─── Step 4: Update ROOT.md + sync to MEMORY.md ───
 
 if (dailyUpdated || weeklyUpdated || monthlyUpdated) {
   const rootPath = join(MEMORY, "ROOT.md");
@@ -239,9 +239,25 @@ if (dailyUpdated || weeklyUpdated || monthlyUpdated) {
     // Update last-updated date
     rootContent = rootContent.replace(/last-updated:.*/, `last-updated: ${today}`);
     writeFileSync(rootPath, rootContent);
+
+    // Sync ROOT.md content to MEMORY.md's Compaction Root section (for OpenClaw)
+    const memoryMdPath = join(CWD, "MEMORY.md");
+    if (existsSync(memoryMdPath)) {
+      const memContent = readFileSync(memoryMdPath, "utf8");
+      if (memContent.includes("## Compaction Root")) {
+        // Extract ROOT.md body (skip frontmatter)
+        const rootBody = rootContent.replace(/^---[\s\S]*?---\n*/, "")
+          .replace(/^## /gm, "### "); // demote headings to fit inside MEMORY.md
+        const updated = memContent.replace(
+          /## Compaction Root[\s\S]*$/,
+          `## Compaction Root\n<!-- Auto-synced from memory/ROOT.md by engram compact -->\n\n${rootBody}`
+        );
+        writeFileSync(memoryMdPath, updated);
+      }
+    }
   }
 
-  // Re-index qmd
+  // Re-index qmd (if available)
   try {
     const { execSync: exec } = await import("node:child_process");
     exec("qmd update", { cwd: CWD, stdio: "pipe" });

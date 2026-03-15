@@ -20,11 +20,13 @@ if (!command || command === "--help" || command === "-h") {
     engram init                          Initialize memory system in current directory
     engram init --domains web,backend    Initialize with domain partitioning
     engram init --no-vector              Disable vector search (BM25 only)
+    engram init --no-search              Skip qmd entirely (use tree traversal only)
     engram compact                       Run mechanical compaction (called automatically by hooks)
 
   Options:
     --domains <list>   Comma-separated domain names for SCRATCHPAD/WORKING partitioning
     --no-vector        Disable vector search (saves ~2GB disk, no embedding models)
+    --no-search        Skip qmd installation and search setup (compaction tree still works)
     --help, -h         Show this help
 `);
   process.exit(0);
@@ -47,24 +49,29 @@ const domains = domainsIdx !== -1 && args[domainsIdx + 1]
   ? args[domainsIdx + 1].split(",").map(d => d.trim()).filter(Boolean)
   : null;
 const noVector = args.includes("--no-vector");
+const noSearch = args.includes("--no-search");
 
 console.log("\n  engram — initializing memory system\n");
 
 // ─── Step 1: Check qmd ───
 
 let hasQmd = false;
-try {
-  execSync("qmd --version", { stdio: "pipe" });
-  hasQmd = true;
-  console.log("  + qmd found");
-} catch {
-  console.log("  ~ qmd not found, installing...");
+if (noSearch) {
+  console.log("  ~ search disabled (--no-search), skipping qmd");
+} else {
   try {
-    execSync("npm install -g @tobilu/qmd", { stdio: "inherit" });
+    execSync("qmd --version", { stdio: "pipe" });
     hasQmd = true;
-    console.log("  + qmd installed");
+    console.log("  + qmd found");
   } catch {
-    console.warn("  ! Could not install qmd. Install manually: npm install -g @tobilu/qmd");
+    console.log("  ~ qmd not found, installing...");
+    try {
+      execSync("npm install -g @tobilu/qmd", { stdio: "inherit" });
+      hasQmd = true;
+      console.log("  + qmd installed");
+    } catch {
+      console.warn("  ! Could not install qmd. Memory system works without it (tree traversal only).");
+    }
   }
 }
 
@@ -254,30 +261,29 @@ if (isOpenClaw) {
     console.log("  + appended engram protocol to AGENTS.md");
   }
 
-  // Add ROOT.md to bootstrapFiles
-  if (existsSync(openclawJson)) {
-    try {
-      const oc = JSON.parse(readFileSync(openclawJson, "utf8"));
-      const bsFiles = oc.bootstrapFiles || [];
-      if (!bsFiles.includes("memory/ROOT.md")) {
-        oc.bootstrapFiles = [...bsFiles, "memory/ROOT.md"];
-        writeFileSync(openclawJson, JSON.stringify(oc, null, 2) + "\n");
-        console.log("  + added memory/ROOT.md to openclaw.json bootstrapFiles");
-      }
-    } catch {
-      // openclaw.json not parseable — fallback to instruction
-      const agentsContent = readFileSync(agentsMd, "utf8");
-      if (!agentsContent.includes("ROOT.md")) {
-        appendFileSync(agentsMd, "\nRead `memory/ROOT.md` at every session start.\n");
-        console.log("  + added ROOT.md instruction to AGENTS.md");
-      }
-    }
-  } else {
-    // No openclaw.json — fallback to instruction in AGENTS.md
-    const agentsContent = readFileSync(agentsMd, "utf8");
-    if (!agentsContent.includes("ROOT.md")) {
-      appendFileSync(agentsMd, "\nRead `memory/ROOT.md` at every session start.\n");
-      console.log("  + added ROOT.md instruction to AGENTS.md (no openclaw.json)");
+  // OpenClaw bootstraps a fixed set of files (AGENTS.md, MEMORY.md, etc.)
+  // ROOT.md can't be added to the bootstrap list, so we embed it as a section in MEMORY.md.
+  // The agent reads MEMORY.md at session start (it's always bootstrapped), and the
+  // Compaction Root section gives it the same awareness as a standalone ROOT.md.
+  const memoryMd = join(CWD, "MEMORY.md");
+  if (existsSync(memoryMd)) {
+    const memContent = readFileSync(memoryMd, "utf8");
+    if (!memContent.includes("Compaction Root")) {
+      appendFileSync(memoryMd, `
+## Compaction Root
+<!-- This section serves as the ROOT.md index for platforms that can't auto-load separate files. -->
+<!-- Updated automatically by engram compact. See memory/ROOT.md for the full version. -->
+
+### Active Context (recent ~7 days)
+<!-- Current work and priorities -->
+
+### Recent Patterns
+<!-- Cross-cutting insights -->
+
+### Topics Index
+<!-- topic: keywords, references -->
+`);
+      console.log("  + added Compaction Root section to MEMORY.md");
     }
   }
 } else {
