@@ -62,7 +62,7 @@ try {
 
 // ─── Step 2: Create directories ───
 
-const dirs = ["memory", "memory/weekly", "memory/monthly", "knowledge", "plans"];
+const dirs = ["memory", "memory/daily", "memory/weekly", "memory/monthly", "knowledge", "plans"];
 for (const dir of dirs) {
   const p = join(CWD, dir);
   if (!existsSync(p)) {
@@ -121,6 +121,9 @@ if (!existsSync(configDest)) {
       vector: !noVector,
       embedModel: "auto",
     },
+    compaction: {
+      rootMaxTokens: 3000,
+    },
   };
 
   if (domains) {
@@ -173,26 +176,119 @@ if (hasQmd) {
   }
 }
 
-// ─── Step 7: Append to CLAUDE.md ───
+// ─── Step 7: Platform detection & protocol injection ───
 
+const agentsMd = join(CWD, "AGENTS.md");
 const claudeMd = join(CWD, "CLAUDE.md");
-if (existsSync(claudeMd)) {
-  const content = readFileSync(claudeMd, "utf8");
-  if (!content.includes("engram")) {
-    const section = `
+const openclawJson = join(CWD, "openclaw.json");
 
-## Memory System (engram)
+const PROTOCOL_BLOCK = `
+## Engram — Memory Protocol
 
-This project uses [engram](https://github.com/kevin-hs-sohn/engram) for agent memory.
+This project uses engram 3-tier memory. Follow \`.claude/skills/engram-core/SKILL.md\`.
 
-- **Read at session start:** MEMORY.md, USER.md, SCRATCHPAD.md, WORKING.md
-- **Update after every task:** Run the 6-step end-of-task checkpoint (see engram-core skill)
-- **Search:** Use \`qmd query "..."\` for hybrid search or \`qmd search "..."\` for keyword search
-- **Config:** See \`engram.config.json\` for domain and search settings
+### Session Start (mandatory)
+1. Read: MEMORY.md, USER.md, SCRATCHPAD.md, WORKING.md, TASK-QUEUE.md
+2. memory/ROOT.md is auto-loaded (full memory topic index)
+3. Read: most recent memory/daily/*.md (if exists)
+4. Check compaction triggers — run engram-compaction skill if needed
+
+### End-of-Task Checkpoint (mandatory)
+1. SCRATCHPAD.md — current state, decisions, next steps
+2. MEMORY.md — APPEND ONLY (never modify Core section)
+3. USER.md — newly learned user info
+4. memory/YYYY-MM-DD.md — append detailed record
+5. WORKING.md — update task status
+6. TASK-QUEUE.md — mark completed, add follow-ups
+
+### Rules
+- MEMORY.md Core section: never modify or delete
+- memory/*.md (raw): permanent, never delete
+- Search: see \`.claude/skills/engram-search/SKILL.md\`
+- If this session ends NOW, the next session must be able to continue immediately
 `;
-    appendFileSync(claudeMd, section);
-    console.log("  + added engram section to CLAUDE.md");
+
+const hasEngram = (text) => text.toLowerCase().includes("engram");
+const isOpenClaw = existsSync(agentsMd);
+
+if (isOpenClaw) {
+  // ── OpenClaw path ──
+  const content = readFileSync(agentsMd, "utf8");
+  if (!hasEngram(content)) {
+    appendFileSync(agentsMd, "\n" + PROTOCOL_BLOCK);
+    console.log("  + appended engram protocol to AGENTS.md");
   }
+
+  // Add ROOT.md to bootstrapFiles
+  if (existsSync(openclawJson)) {
+    try {
+      const oc = JSON.parse(readFileSync(openclawJson, "utf8"));
+      const bsFiles = oc.bootstrapFiles || [];
+      if (!bsFiles.includes("memory/ROOT.md")) {
+        oc.bootstrapFiles = [...bsFiles, "memory/ROOT.md"];
+        writeFileSync(openclawJson, JSON.stringify(oc, null, 2) + "\n");
+        console.log("  + added memory/ROOT.md to openclaw.json bootstrapFiles");
+      }
+    } catch {
+      // openclaw.json not parseable — fallback to instruction
+      const agentsContent = readFileSync(agentsMd, "utf8");
+      if (!agentsContent.includes("ROOT.md")) {
+        appendFileSync(agentsMd, "\nRead `memory/ROOT.md` at every session start.\n");
+        console.log("  + added ROOT.md instruction to AGENTS.md");
+      }
+    }
+  } else {
+    // No openclaw.json — fallback to instruction in AGENTS.md
+    const agentsContent = readFileSync(agentsMd, "utf8");
+    if (!agentsContent.includes("ROOT.md")) {
+      appendFileSync(agentsMd, "\nRead `memory/ROOT.md` at every session start.\n");
+      console.log("  + added ROOT.md instruction to AGENTS.md (no openclaw.json)");
+    }
+  }
+} else {
+  // ── Claude Code path ──
+  const rootImport = "@memory/ROOT.md\n";
+
+  if (existsSync(claudeMd)) {
+    const content = readFileSync(claudeMd, "utf8");
+    if (!hasEngram(content)) {
+      // Add @import at the top, protocol block at the bottom
+      const newContent = (content.includes("@memory/ROOT.md") ? content : rootImport + "\n" + content)
+        + "\n" + PROTOCOL_BLOCK;
+      writeFileSync(claudeMd, newContent);
+      console.log("  + added ROOT.md import and engram protocol to CLAUDE.md");
+    }
+  } else {
+    // Create new CLAUDE.md
+    writeFileSync(claudeMd, rootImport + "\n" + PROTOCOL_BLOCK);
+    console.log("  + created CLAUDE.md with ROOT.md import and engram protocol");
+  }
+}
+
+// ─── Step 8: .gitignore ───
+
+const gitignorePath = join(CWD, ".gitignore");
+const ENGRAM_GITIGNORE = `
+# engram - personal memory (don't commit)
+MEMORY.md
+USER.md
+SCRATCHPAD*.md
+WORKING*.md
+TASK-QUEUE.md
+memory/
+knowledge/
+plans/
+`;
+
+if (existsSync(gitignorePath)) {
+  const gi = readFileSync(gitignorePath, "utf8");
+  if (!gi.includes("engram")) {
+    appendFileSync(gitignorePath, ENGRAM_GITIGNORE);
+    console.log("  + added engram entries to .gitignore");
+  }
+} else {
+  writeFileSync(gitignorePath, ENGRAM_GITIGNORE.trimStart());
+  console.log("  + created .gitignore with engram entries");
 }
 
 // ─── Done ───

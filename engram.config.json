@@ -8,5 +8,8 @@
   "search": {
     "vector": true,
     "embedModel": "auto"
+  },
+  "compaction": {
+    "rootMaxTokens": 3000
   }
 }
