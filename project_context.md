@@ -4,7 +4,7 @@
 
 Open-source agent memory harness. Extracted from the 3-tier memory system running on 80+ production bots at clawy.pro.
 
-**Repo:** `github.com/clawy-ai/engram`
+**Repo:** `github.com/kevin-hs-sohn/engram`
 **Package:** `npx engram init`
 **License:** MIT
 

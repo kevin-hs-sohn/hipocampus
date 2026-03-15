@@ -19,7 +19,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clawy-ai/engram"
+    "url": "https://github.com/kevin-hs-sohn/engram"
   },
   "files": [
     "cli/",

@@ -183,7 +183,7 @@ if (existsSync(claudeMd)) {
 
 ## Memory System (engram)
 
-This project uses [engram](https://github.com/clawy-ai/engram) for agent memory.
+This project uses [engram](https://github.com/kevin-hs-sohn/engram) for agent memory.
 
 - **Read at session start:** MEMORY.md, USER.md, SCRATCHPAD.md, WORKING.md
 - **Update after every task:** Run the 6-step end-of-task checkpoint (see engram-core skill)
