@@ -1,29 +1,34 @@
-# Engram Memory Layers
+# Hipocampus Memory Layers
 
 ## Overview
 
-Engram organizes agent memory into three tiers optimized for cost and retrieval speed. Layer 1 is always loaded (hot), Layer 2 is read on demand (warm), Layer 3 is accessed via search or tree traversal (cold).
+Hipocampus organizes agent memory into three tiers optimized for cost and retrieval speed. Layer 1 is always loaded (hot), Layer 2 is read on demand (warm), Layer 3 is accessed via search or tree traversal (cold).
 
 ## Layer 1: System Prompt (Hot Memory)
 
 Injected into every API call. Must stay small (~500 lines total across all files).
 
-| File | Purpose | Target Size |
-|------|---------|-------------|
-| MEMORY.md | Long-term memory (Core frozen + Adaptive dynamic) | ~50 lines |
-| USER.md | User profile, preferences, communication style | ~50 lines |
-| SCRATCHPAD.md | Current work state, pending decisions | ~150 lines |
-| WORKING.md | In-progress task list | ~100 lines |
-| TASK-QUEUE.md | Queued tasks | ~50 lines |
-| memory/ROOT.md | Full memory topic index — "what I know I know" | ~100 lines (~3K tokens) |
+| File | Purpose | Target Size | Platform |
+|------|---------|-------------|----------|
+| MEMORY.md | Long-term memory (Core frozen + Adaptive dynamic) | ~50 lines | OpenClaw only |
+| USER.md | User profile, preferences, communication style | ~50 lines | OpenClaw only |
+| SCRATCHPAD.md | Current work state, pending decisions | ~150 lines | All |
+| WORKING.md | In-progress task list | ~100 lines | All |
+| TASK-QUEUE.md | Queued tasks | ~50 lines | All |
+| memory/ROOT.md | Full memory topic index — "what I know I know" | ~100 lines (~3K tokens) | All |
 
 **Properties:**
 - Loaded every API call — keep lean
 - Stable content maximizes prompt cache hit rate (up to 90% token savings)
 - Agent-curated — the agent reads AND writes these files
 - MEMORY.md has frozen Core section + compactable Adaptive section
-- SCRATCHPAD.md and WORKING.md can be split by domain (see domain partitioning)
 - memory/ROOT.md is auto-loaded by the platform (not manually read by the agent)
+
+### Platform Memory Integration
+
+On Claude Code, MEMORY.md and USER.md are not created. The platform's built-in auto memory handles long-term fact and user profile storage. Hipocampus focuses on the compaction tree (ROOT.md), session logs, and operational state files (SCRATCHPAD, WORKING, TASK-QUEUE).
+
+On OpenClaw, MEMORY.md and USER.md are created at project root as the platform's native memory files. ROOT.md content is embedded as a "Compaction Root" section in MEMORY.md since the platform can't auto-load separate files.
 
 ### ROOT.md Rationale
 
@@ -43,7 +48,7 @@ Search (qmd) only works when you know what to search for. Without a root node:
 | Update | Every compaction cycle (whenever tentative nodes change) |
 | Structure | Active Context (current week) + Topics Index (O(1) lookup) + Historical Summary (chronology) |
 
-ROOT.md is the top node of the 5-level compaction tree (see Layer 3). The platform injects it automatically — Claude Code via `@memory/ROOT.md` import in CLAUDE.md, OpenClaw via `bootstrapFiles` in openclaw.json.
+ROOT.md is the top node of the 5-level compaction tree (see Layer 3). The platform injects it automatically — Claude Code via `@memory/ROOT.md` import in CLAUDE.md, OpenClaw via embedded "Compaction Root" section in MEMORY.md (synced by hipocampus-compaction after each root compaction).
 
 **MEMORY.md vs ROOT.md:**
 
@@ -119,8 +124,8 @@ period: 2026-W11
 
 ```
 project/
-├── MEMORY.md                    # Layer 1 — long-term memory
-├── USER.md                      # Layer 1 — user profile
+├── MEMORY.md                    # Layer 1 — long-term memory (OpenClaw only)
+├── USER.md                      # Layer 1 — user profile (OpenClaw only)
 ├── SCRATCHPAD.md                # Layer 1 — active work state
 ├── WORKING.md                   # Layer 1 — current tasks
 ├── TASK-QUEUE.md                # Layer 1 — task queue
@@ -138,7 +143,7 @@ project/
 │   └── *.md
 ├── plans/                       # Layer 2
 │   └── *.md
-└── engram.config.json           # Configuration
+└── hipocampus.config.json           # Configuration
 ```
 
 ### 5-Level Compaction Tree

@@ -1,4 +1,4 @@
-# engram
+# hipocampus
 
 Drop-in memory harness for AI agents. Zero infrastructure — just files.
 
@@ -7,22 +7,22 @@ Drop-in memory harness for AI agents. Zero infrastructure — just files.
 ## Quick Start
 
 ```bash
-npx engram init
+npx hipocampus init
 ```
 
 This creates the full memory structure in your project:
 
 ```
-MEMORY.md              # Long-term memory (Core frozen + Adaptive dynamic)
-USER.md                # User profile built over conversations
+MEMORY.md              # Long-term memory (OpenClaw only — Claude Code uses platform auto memory)
+USER.md                # User profile (OpenClaw only — Claude Code uses platform auto memory)
 SCRATCHPAD.md          # Active working state
 WORKING.md             # Current tasks in progress
 TASK-QUEUE.md          # Task backlog (queued items only)
 memory/                # ROOT.md + daily logs + 5-level compaction tree
 knowledge/             # Searchable knowledge base
 plans/                 # Task plans
-engram.config.json     # Configuration
-.claude/skills/        # Agent skills (engram-core, engram-compaction, engram-search)
+hipocampus.config.json     # Configuration
+.claude/skills/        # Agent skills (hipocampus-core, hipocampus-compaction, hipocampus-search)
 ```
 
 It also:
@@ -35,102 +35,141 @@ It also:
 ### Options
 
 ```bash
-# Split SCRATCHPAD/WORKING by domain (for multi-area projects)
-npx engram init --domains web,backend,infra
-
 # Disable vector search (BM25 only, saves ~2GB disk)
-npx engram init --no-vector
+npx hipocampus init --no-vector
 
 # Skip qmd entirely (compaction tree + manual file reads only)
-npx engram init --no-search
+npx hipocampus init --no-search
+
+# Override platform detection (auto-detects by default)
+npx hipocampus init --platform claude-code
+npx hipocampus init --platform openclaw
 ```
+
+## What You Get
+
+Install hipocampus on a Claude Code or OpenClaw project, and your agent gains **persistent memory across sessions**. It remembers what you worked on, what decisions were made, what lessons were learned — and it knows what it knows without loading everything into context.
+
+The effect is similar to injecting your entire conversation history into every API call, but at a fraction of the token cost (~3K tokens instead of 100K+).
+
+### Why not just use a large context window?
+
+Modern models support 200K–1M token context windows. You could theoretically dump all past history into context — 500K tokens for conversation, 500K for past memory. But this creates two problems:
+
+1. **Attention degrades.** The more context you load, the worse the model attends to what matters. Important details from three weeks ago get drowned out by noise. The model "sees" everything but focuses on nothing.
+2. **Token cost scales linearly.** Every API call pays for the full context. At 500K tokens of history injected per call, costs become prohibitive for daily use — and most of that context is irrelevant to the current task.
+
+Hipocampus gives the agent the same awareness at ~3K tokens: ROOT.md tells it what it knows, and the agent loads specific details on demand.
+
+Without hipocampus, when an agent doesn't know what it knows, it explores. It reads file after file trying to find relevant context — and every file it reads stays in the session context until the session ends. Ten files read and discarded is 30K+ tokens of waste, paid on every subsequent API call for the rest of the session.
+
+Worse, when the agent doesn't know it already has the answer, it researches from scratch. You discussed database migration strategies two weeks ago, reached a decision, documented the rationale — but the agent doesn't know that knowledge exists, so it spends 20 minutes and thousands of tokens re-investigating the same question.
+
+ROOT.md eliminates both problems. At ~3K tokens, the agent knows exactly what it has and what it doesn't — so it either retrieves the specific file it needs, or skips memory and researches only what's genuinely new. **The real savings isn't "hipocampus vs full history dump" — it's targeted retrieval vs blind exploration that pollutes your context, and instant recall vs redundant research on problems you already solved.**
 
 ## The Problem
 
-AI agents forget everything between sessions. The standard solutions each solve part of the problem, but none solve it completely:
+AI agents forget everything between sessions. Existing solutions each solve part of the problem:
 
-### MEMORY.md alone is not enough
+**Working state files (SCRATCHPAD.md, WORKING.md)** give the agent awareness of what's currently happening — active tasks, pending decisions, recent context. But they're limited to the present. They can't tell the agent about a decision made three weeks ago or a pattern that emerged over months.
 
-Claude Code's auto-memory and OpenClaw's MEMORY.md are injected into every API call — the agent "remembers" whatever is written there. But system prompt space is finite. A 50-line MEMORY.md works for the first week. After a month of daily use, you have hundreds of decisions, lessons, and context that simply cannot fit. You're forced to choose what to keep and what to lose.
+**Long-term memory (MEMORY.md / platform auto memory)** persists facts and lessons across sessions. But system prompt space is finite — a 50-line memory works for the first week. After a month, hundreds of decisions and insights simply can't fit. You're forced to choose what to keep and what to lose. Worse, the agent doesn't know what it has forgotten.
 
-Worse, the agent doesn't know what it has forgotten. It can't search what isn't there.
+**RAG (vector search, BM25)** solves the storage problem — index thousands of files and search them. But search requires **knowing what to search for**. When a user asks "how should we handle session timeouts?", the agent doesn't know whether it discussed this exact problem three weeks ago. Without awareness that the knowledge exists, it defaults to external search or guessing. **You can't search for something you don't know you know.**
 
-### RAG and vector search are not enough
+### What each piece can and can't do
 
-RAG (qmd, embeddings, vector search) solves the storage problem — you can index thousands of files and search them. But search requires **knowing what to search for**. When a user asks "what was that paper about compaction trees?", the agent can search for it. But when the user asks "how should we handle session timeouts?" — the agent doesn't know whether it has relevant past context or not. It might have discussed this exact problem three weeks ago, but without awareness that the knowledge exists, it defaults to external search or guessing.
+| Capability | Working state | Long-term memory | RAG | Compaction tree |
+|---|---|---|---|---|
+| Current task awareness | Yes | No | No | No |
+| Persist facts across sessions | No | Yes (until overflow) | Yes (if indexed) | Yes (ROOT.md) |
+| Scale over months | No | No (overflows) | Yes | Yes (self-compresses) |
+| Know what you know | Current only | Only what fits | No — requires query | **Yes — ROOT.md index** |
+| Retrieve specific past detail | No | No (if pruned) | **Yes — semantic search** | Yes (tree traversal) |
+| Find things you didn't know to search for | No | No | No | **Yes — browse tree** |
 
-The fundamental gap: **you can't search for something you don't know you know.**
+**No single mechanism is sufficient.** Working state handles the present. Long-term memory handles key facts. RAG handles retrieval when you know what to search for. The compaction tree handles awareness and browsing. Hipocampus combines all four.
 
-### The missing piece: awareness without loading
+## Architecture — 3-Tier Memory
 
-The real problem is the cost of awareness. Loading all past context into every API call would give the agent perfect memory, but at 100K+ tokens per month, this is prohibitively expensive. Not loading it means the agent is unaware of its own knowledge.
+Hipocampus organizes memory into three tiers, like a CPU cache hierarchy:
 
-Engram solves this with a **3-tier architecture** and a **compaction tree with a root index**:
+### Layer 1 — Hot (always loaded, ~500 lines)
 
-- **Layer 1 (Hot):** ~500 lines always loaded — includes ROOT.md, a ~100-line topic index that tells the agent "what I know I know" at ~3K tokens per call
-- **Layer 2 (Warm):** detailed records read on demand — daily logs, knowledge files, plans
-- **Layer 3 (Cold):** searchable via qmd — the compaction tree (daily → weekly → monthly summaries) provides hierarchical drill-down when search misses
+Injected into every API call. The agent's "working memory" — what it needs to know right now.
 
-ROOT.md is the key innovation. It's a functional index with four sections: Active Context (what's happening now), Recent Patterns (cross-cutting insights), Historical Summary (compressed timeline), and Topics Index (O(1) keyword lookup). The agent checks the Topics Index to decide in one glance: search memory, search externally, or answer from general knowledge. No loading required.
+| File | Purpose | Why it's here |
+|------|---------|---------------|
+| **SCRATCHPAD.md** | Active work state — current findings, pending decisions, cross-task lessons | Without this, the agent loses track of what it's doing mid-session |
+| **WORKING.md** | Tasks in progress — status, blockers, next steps | Without this, the agent doesn't know what tasks are active |
+| **TASK-QUEUE.md** | Backlog of pending tasks | Without this, follow-up tasks from prior sessions are lost |
+| **memory/ROOT.md** | Compaction tree root — compressed index of ALL accumulated history (~100 lines) | **The key innovation.** This is what gives the agent awareness of its entire past at ~3K tokens. Like injecting all history, but 50x cheaper. |
+| **MEMORY.md** | Long-term facts, rules, lessons (OpenClaw only — Claude Code uses platform auto memory) | Core facts that apply to every interaction |
+| **USER.md** | User profile, preferences (OpenClaw only) | Personalization across sessions |
 
-### How engram compares
+**ROOT.md deserves special attention.** It's a ~100-line functional index that compresses ALL past conversations and work into four sections:
 
-| | MEMORY.md only | RAG only | **Engram** |
-|---|---|---|---|
-| Remembers past sessions | Until it overflows | If you search for it | **Always — tiered storage** |
-| Knows what it knows | Only what fits in ~50 lines | Only if you ask the right query | **ROOT.md topic index (~3K tokens)** |
-| Cost per API call | Low (small context) | Low (no injection) | **Low (~3K extra tokens for ROOT.md)** |
-| Setup | None | Server + embeddings + config | **`npx engram init`** |
-| Infrastructure | None | Vector DB or embedding service | **None — just files** |
-| Scales over months | No — overflows | Yes — but blind to own knowledge | **Yes — compaction tree self-compresses** |
+```markdown
+## Active Context (recent ~7 days)
+- hipocampus open-source: finalizing spec, ROOT.md format refactor
+- legal research: Civil Act §750 brief → knowledge/legal-750.md
 
-## Architecture
+## Recent Patterns
+- compaction design: functional sections outperform chronological for O(1) lookup
+
+## Historical Summary
+- 2026-01~02: initial 3-tier design, clawy.pro K8s launch
+- 2026-03: hipocampus open-source, qmd integration
+
+## Topics Index
+- hipocampus: compaction tree, ROOT.md, skills → spec/
+- legal: Civil Act §750, tort liability → knowledge/legal-750.md
+- clawy.pro: K8s infra, provisioning, 80-bot deployment
+```
+
+The agent checks the **Topics Index** to decide in one glance: search memory, search externally, or answer from general knowledge. O(1) lookup — no file reads needed. This solves the "you can't search for what you don't know you know" problem.
+
+### Layer 2 — Warm (read on demand)
+
+Detailed records the agent reads when it needs specifics. Not loaded by default — accessed when Layer 1 indicates relevant knowledge exists.
+
+| Path | Purpose | Why it's here |
+|------|---------|---------------|
+| `memory/YYYY-MM-DD.md` | Raw daily logs — structured session records | Permanent source of truth. Every decision, analysis, and outcome is recorded here. The compaction tree is built from these. |
+| `knowledge/*.md` | Curated knowledge base | Deep-dive documents too large for Layer 1 but too important to only exist in daily logs |
+| `plans/*.md` | Task plans and execution records | Multi-step work that spans sessions |
+
+### Layer 3 — Cold (search + compaction tree)
+
+Two retrieval mechanisms for finding information across months of history:
+
+**RAG (qmd)** — Best for: specific retrieval when you know what you're looking for. "What was the DB migration decision?" → semantic search finds it. RAG excels at precision recall from large corpora.
+
+**Compaction tree** — Best for: browsing and discovery when you're not sure what exists. The tree provides hierarchical drill-down: ROOT.md → monthly → weekly → daily → raw. This works even when RAG misses because you can browse time periods rather than searching by keyword.
 
 ```
-Layer 1 — System Prompt (every API call, ~500 lines total)
-  MEMORY.md              long-term memory (Core frozen + Adaptive dynamic)
-  USER.md                user profile
-  SCRATCHPAD.md          active work state
-  WORKING.md             current tasks in progress
-  TASK-QUEUE.md          task backlog (queued items only, no completed)
-  memory/ROOT.md         full memory topic index (auto-loaded, ~100 lines)
+Compaction chain: Raw → Daily → Weekly → Monthly → Root
 
-Layer 2 — On-Demand (read when needed)
-  memory/YYYY-MM-DD.md   raw daily logs (permanent, structured session records)
-  knowledge/*.md         searchable knowledge
-  plans/*.md             task plans
-
-Layer 3 — Search (via qmd + compaction tree)
-  qmd query "..."        hybrid BM25 + vector + rerank
-  qmd search "..."       BM25 keyword search
-  Compaction tree        ROOT → monthly → weekly → daily → raw
-```
-
-**Layer 1** stays small and stable, maximizing prompt cache hits (up to 90% token savings). ROOT.md is auto-loaded at every session start — the agent can decide whether to search memory, search externally, or answer directly without reading any other files first.
-
-**Layer 2** stores detailed records. Daily logs are permanent and never deleted. Each log entry is a **structured session dump** — not a raw transcript, but curated records organized by topic with decisions, rationale, user feedback, data points, and file references.
-
-**Layer 3** makes everything searchable. The 5-level compaction tree provides a hierarchical fallback when keyword search misses. qmd is optional — the compaction tree works independently via direct file reads.
-
-### 5-Level Compaction Tree
-
-```
 memory/
-├── ROOT.md                         # Root node — topic index, Layer 1, auto-loaded
-├── 2026-03-15.md                   # Raw daily log — permanent, Layer 2
-├── daily/
-│   └── 2026-03-15.md               # Daily compaction node — Layer 3
-├── weekly/
-│   └── 2026-W11.md                 # Weekly index node — Layer 3
-└── monthly/
-    └── 2026-03.md                  # Monthly index node — Layer 3
+├── ROOT.md                         # Root node — Layer 1, auto-loaded
+├── 2026-03-15.md                   # Raw daily log — permanent
+├── daily/2026-03-15.md             # Daily compaction node
+├── weekly/2026-W11.md              # Weekly index node
+└── monthly/2026-03.md              # Monthly index node
 ```
 
-**Compaction chain:** Raw → Daily → Weekly → Monthly → Root
+| What RAG does that the tree can't | What the tree does that RAG can't |
+|---|---|
+| Semantic similarity search ("find things related to X") | Awareness without query (ROOT.md knows what topics exist) |
+| Cross-topic retrieval (find connections between unrelated logs) | Time-based browsing (what happened in January?) |
+| Fast lookup in large corpora (thousands of files) | Hierarchical drill-down (month → week → day → raw) |
+| | Works offline (no embedding models needed) |
 
-Each node carries `status: tentative|fixed`. Tentative nodes are regenerated when new data arrives; fixed nodes are never updated again. ROOT.md is always tentative — it accumulates forever and self-compresses when it exceeds the size cap.
+Together: ROOT.md tells the agent what it knows → agent decides to search → RAG finds the specific document → or tree traversal browses the time period.
 
-Smart thresholds prevent information loss: below threshold, source files are copied/concatenated verbatim instead of summarized by an LLM.
+### Smart Compaction Thresholds
+
+Below threshold, source files are copied/concatenated verbatim — no information loss. Above threshold, LLM generates keyword-dense summaries.
 
 | Level | Threshold | Below | Above |
 |-------|-----------|-------|-------|
@@ -139,66 +178,61 @@ Smart thresholds prevent information loss: below threshold, source files are cop
 | Weekly → Monthly | ~500 lines combined | Concat weeklies | LLM keyword-dense summary |
 | Monthly → Root | Always | Recursive recompaction | — |
 
-### ROOT.md — "What I Know I Know"
+### How hipocampus compares
 
-Without a root index, the agent cannot answer "do I already know about this?" without loading memory — which costs tokens. ROOT.md solves this: a ~100-line functional index loaded automatically at every session start.
-
-```markdown
-## Active Context (recent ~7 days)
-- engram open-source: finalizing spec, ROOT.md format refactor in progress
-- legal research: Civil Act §750 brief, 2 precedents → knowledge/legal-750.md
-
-## Recent Patterns
-- compaction design: functional sections outperform chronological for O(1) lookup
-- knowledge files: always cross-reference from Topics Index for discoverability
-
-## Historical Summary
-- 2026-01~02: initial 3-tier design, clawy.pro K8s launch
-- 2026-03: engram open-source, qmd integration
-
-## Topics Index
-- engram: compaction tree, ROOT.md, skills → spec/
-- legal: Civil Act §750, tort liability → knowledge/legal-750.md
-- clawy.pro: K8s infra, provisioning, 80-bot deployment
-- qmd: BM25, vector hybrid, embeddinggemma-300M
-```
-
-The agent uses the **Topics Index** to decide in one glance: search memory, search externally, or answer from general knowledge. O(1) lookup — no file reads needed.
+| | Working state only | MEMORY.md only | RAG only | **Hipocampus** |
+|---|---|---|---|---|
+| Current task awareness | Yes | No | No | **Yes — SCRATCHPAD + WORKING** |
+| Remembers past sessions | No | Until overflow | If you search for it | **Always — tiered storage** |
+| Knows what it knows | Current only | ~50 lines | Only if right query | **ROOT.md (~3K tokens)** |
+| Scales over months | No | No | Yes (blind) | **Yes — self-compressing tree** |
+| Cost per API call | Low | Low | Low | **Low (~3K extra tokens)** |
+| Setup | Manual | Manual | Server + config | **`npx hipocampus init`** |
+| Infrastructure | None | None | Vector DB | **None — just files** |
 
 ## How It Runs
 
-Engram has four execution mechanisms — all set up automatically by `npx engram init`. Nothing requires manual intervention after install.
+Hipocampus has four execution mechanisms — all set up automatically by `npx hipocampus init`. Nothing requires manual intervention after install.
+
+**Key principle: all memory write operations are dispatched to subagents.** This keeps the main session context clean — memory management never pollutes the conversation the user is having with the agent.
 
 ### 1. Session Protocol (agent-driven)
 
-The engram-core skill instructs the agent what to do at session start and after every task. This is injected into CLAUDE.md (Claude Code) or AGENTS.md (OpenClaw) during init, so the agent follows it automatically.
+The hipocampus-core skill instructs the agent what to do at session start and after every task. This is injected into CLAUDE.md (Claude Code) or AGENTS.md (OpenClaw) during init, so the agent follows it automatically.
 
-**Session Start (7 steps):**
+**Session Start (FIRST RESPONSE RULE — runs before anything else on first user message):**
 
 ```
-1. Read engram.config.json → load domain-matched SCRATCHPAD/WORKING
-2. Read MEMORY.md (long-term memory)
-3. Read USER.md (user profile)
-4. Read current domain's SCRATCHPAD and WORKING
-5. Read TASK-QUEUE.md (backlog)
-6. Read most recent memory/daily/*.md (prior session context)
-7. Check compaction triggers → run engram-compaction if needed
+1. Read hipocampus.config.json → determine platform
+2. OpenClaw only: Read MEMORY.md (long-term memory)
+3. OpenClaw only: Read USER.md (user profile)
+4. Claude Code legacy: Read MEMORY.md if it exists (migration support)
+5. Read SCRATCHPAD.md — current work state
+6. Read WORKING.md — active tasks
+7. Read TASK-QUEUE.md — pending items
+8. Read most recent memory/daily/*.md (prior session context)
+9. Compaction maintenance (subagent): dispatch subagent to scan for needs-summarization
+   files → LLM summaries → hipocampus compact → qmd reindex
 ```
 
 ROOT.md is auto-loaded by the platform — no manual read needed.
 
-**End-of-Task Checkpoint (6 steps):**
+**End-of-Task Checkpoint (via subagent):**
+
+After completing any task, the agent composes a task summary and dispatches a subagent to:
 
 ```
 1. Update SCRATCHPAD — findings, decisions, lessons
-2. Append to MEMORY.md — APPEND ONLY, never modify Core section
-3. Update USER.md — newly learned user info
+2. OpenClaw: Append to MEMORY.md — APPEND ONLY, never modify Core section
+   Claude Code: Save facts/lessons to platform memory (auto memory handles this natively)
+3. OpenClaw only: Update USER.md — newly learned user info
 4. Append structured log to memory/YYYY-MM-DD.md (see below)
 5. Update WORKING — remove completed tasks
 6. Update TASK-QUEUE — remove completed tasks, add follow-ups
+7. Run qmd update
 ```
 
-Completed tasks are removed from WORKING and TASK-QUEUE — the daily log is the permanent completion record.
+The agent provides the task summary to the subagent since the subagent has no access to the conversation. Completed tasks are removed from WORKING and TASK-QUEUE — the daily log is the permanent completion record.
 
 ### 2. Structured Daily Log (the compaction tree's source material)
 
@@ -226,7 +260,7 @@ This format includes enough detail for the daily compaction node to extract keyw
 
 Both Claude Code and OpenClaw automatically compress conversation context when it gets too long. If the agent hasn't written to the daily log before compression, those details are **lost forever**.
 
-The engram-core skill instructs the agent to flush proactively:
+The hipocampus-core skill instructs the agent to flush proactively by dispatching a subagent with a summary of recent work:
 
 - Every ~20 messages without a checkpoint
 - When the conversation is getting long
@@ -235,40 +269,50 @@ The engram-core skill instructs the agent to flush proactively:
 
 ```
 Session in progress
-  → Task A completed → checkpoint → daily log append
-  → Task B completed → checkpoint → daily log append
+  → Task A completed → subagent: checkpoint → daily log append
+  → Task B completed → subagent: checkpoint → daily log append
   → Task C in progress, long conversation...
-    → ~20 messages → proactive flush → daily log append
-    → significant decision → proactive flush → daily log append
+    → ~20 messages → subagent: proactive flush → daily log append
+    → significant decision → subagent: proactive flush → daily log append
   → Context window fills up → pre-compaction hook fires (see below)
 ```
 
-The daily log is append-only, so multiple flushes in the same session are safe.
+The daily log is append-only, so multiple flushes in the same session are safe. All writes go through subagents to keep the main session clean.
 
-### 4. Pre-Compaction Hook (platform-driven, automatic)
+### 4. Pre-Compaction + LLM Compaction (platform-specific)
 
-When context compression is about to happen, engram hooks into the platform event to run `engram compact` — a zero-LLM-cost shell command that mechanically updates the compaction tree.
+PreCompact hooks only support `type: "command"` (no agent hooks). Mechanical compaction runs automatically; LLM processing is deferred to session start, heartbeat, or manual `/hipocampus-flush`.
+
+**Both platforms — PreCompact hook (mechanical only):**
 
 ```
 Context fills up
-  → Platform fires pre-compaction event
-  → engram compact runs automatically:
-      1. Back up session transcript to memory/.session-transcript-YYYY-MM-DD.bak
-      2. Raw → Daily: copy verbatim if ≤200 lines, mark for LLM summary if larger
-      3. Daily → Weekly: concat if ≤300 lines combined, mark if larger
-      4. Weekly → Monthly: concat if ≤500 lines combined, mark if larger
-      5. Update ROOT.md timestamp + sync to MEMORY.md (OpenClaw)
-      6. Re-index qmd (if installed)
-  → Platform compresses context
-  → Agent continues with fresh context, memory preserved on disk
+  → PreCompact hook fires
+  → hipocampus compact --stdin (command hook):
+      1. Back up session transcript to memory/.session-transcript-YYYY-MM-DD.jsonl
+      2. Mechanical compaction (verbatim/concat, needs-summarization marking)
+      3. Update ROOT.md timestamp + sync to MEMORY.md (OpenClaw)
+      4. qmd update + qmd embed
+  → Context compression proceeds
 ```
 
-Files that exceed thresholds are marked `needs-summarization` — the agent handles those with the engram-compaction skill at next session start, using LLM to generate keyword-dense summaries.
+**LLM compaction (needs-summarization processing):**
 
-| Platform | Hook | Registered by init |
-|----------|------|--------------------|
-| Claude Code | `PreCompact` in `.claude/settings.json` | Automatic |
-| OpenClaw | `preCompact` in `openclaw.json` | Automatic |
+```
+Claude Code:
+  → Session Start step 9: check needs-summarization → hipocampus-compaction skill
+  → Manual: /hipocampus-flush (flush + full compaction + qmd reindex)
+
+OpenClaw:
+  → Every heartbeat (~30 min): HEARTBEAT.md checks needs-summarization
+  → Session Start step 9: same check as Claude Code
+  → Manual: /hipocampus-flush
+```
+
+| Platform | Mechanical Compaction | LLM Compaction | Manual |
+|----------|----------------------|----------------|--------|
+| Claude Code | PreCompact command hook | Session Start + `/hipocampus-flush` | `/hipocampus-flush` |
+| OpenClaw | PreCompact command hook | HEARTBEAT.md + Session Start | `/hipocampus-flush` |
 
 ### ROOT.md Auto-Loading
 
@@ -277,31 +321,36 @@ ROOT.md must be in the agent's context at every session start. Each platform has
 | Platform | Mechanism | Registered by init |
 |----------|-----------|-------------------|
 | Claude Code | `@memory/ROOT.md` import in CLAUDE.md | Automatic |
-| OpenClaw | Embedded as `## Compaction Root` section in MEMORY.md (auto-synced by `engram compact`) | Automatic |
+| OpenClaw | Embedded as `## Compaction Root` section in MEMORY.md (auto-synced by `hipocampus compact`) | Automatic |
 
-OpenClaw bootstraps a fixed set of files (AGENTS.md, MEMORY.md, etc.) — ROOT.md can't be added to that list. Instead, engram embeds the ROOT content as a section inside MEMORY.md, which is always bootstrapped. The `engram compact` command keeps this section in sync with `memory/ROOT.md`.
+OpenClaw bootstraps a fixed set of files (AGENTS.md, MEMORY.md, etc.) — ROOT.md can't be added to that list. Instead, hipocampus embeds the ROOT content as a section inside MEMORY.md, which is always bootstrapped. The `hipocampus compact` command keeps this section in sync with `memory/ROOT.md`.
 
 ### Execution Summary
 
-| Mechanism | What it does | When | Cost |
-|-----------|-------------|------|------|
-| Session protocol | Agent reads/writes memory files | Every session start + task completion | Skill instructions (no extra LLM cost) |
-| Structured daily log | Detailed per-topic session record | Every checkpoint + proactive flush | Agent writes to file |
-| Proactive flush | Agent dumps context before it's lost | Every ~20 messages in long sessions | Agent writes to file |
-| Pre-compaction hook | Mechanical tree update (copy/concat) | Before context compression | Zero LLM cost (shell script) |
-| ROOT.md auto-load | Topic index in system prompt | Every session start | ~3K tokens |
+| Mechanism | What it does | When | Subagent | Cost |
+|-----------|-------------|------|----------|------|
+| Session Start (reads) | Load SCRATCHPAD, WORKING, TASK-QUEUE, recent daily | First user message | No (main session) | Read only |
+| Session Start (compaction) | Process needs-summarization files | First user message | **Yes** | LLM (if files exist) |
+| End-of-Task Checkpoint | Update all memory files + daily log | Every task completion | **Yes** | LLM |
+| Proactive flush | Dump context to daily log | Every ~20 messages | **Yes** | LLM |
+| Pre-compaction hook | Mechanical compaction + qmd reindex | Before context compression | No (command hook) | Zero LLM |
+| TaskCompleted hook (CC) | Mechanical compaction | After each task | No (command hook) | Zero LLM |
+| Heartbeat (OpenClaw) | Process needs-summarization | Every ~30 min | Isolated session | LLM (if files exist) |
+| `/hipocampus-flush` | Manual: session → daily raw + compact | On demand | **Yes** | LLM |
+| ROOT.md auto-load | Topic index in system prompt | Every session start | No (platform) | ~3K tokens |
 
-Everything is set up by `npx engram init`. The user never has to think about memory management.
+Everything is set up by `npx hipocampus init`. The user never has to think about memory management.
 
 ## File Layout After Init
 
 ```
 project/
-├── MEMORY.md
-├── USER.md
-├── SCRATCHPAD.md                    (or per-domain SCRATCHPAD-*.md)
-├── WORKING.md                       (or per-domain WORKING-*.md)
+├── MEMORY.md                        (OpenClaw only)
+├── USER.md                          (OpenClaw only)
+├── SCRATCHPAD.md
+├── WORKING.md
 ├── TASK-QUEUE.md
+├── HEARTBEAT.md                     (OpenClaw only — heartbeat compaction checklist)
 ├── memory/
 │   ├── ROOT.md                      # Full memory topic index (Layer 1, auto-loaded)
 │   ├── (raw logs: YYYY-MM-DD.md)    # Permanent structured session records
@@ -312,25 +361,20 @@ project/
 ├── plans/
 ├── .claude/
 │   ├── skills/
-│   │   ├── engram-core/SKILL.md
-│   │   ├── engram-compaction/SKILL.md
-│   │   └── engram-search/SKILL.md
+│   │   ├── hipocampus-core/SKILL.md
+│   │   ├── hipocampus-compaction/SKILL.md
+│   │   └── hipocampus-search/SKILL.md
 │   └── settings.json                # PreCompact hook (Claude Code)
-└── engram.config.json
+└── hipocampus.config.json
 ```
 
 ## Configuration
 
-`engram.config.json` (generated by `npx engram init`):
+`hipocampus.config.json` (generated by `npx hipocampus init`):
 
 ```json
 {
-  "domains": {
-    "default": {
-      "scratchpad": "SCRATCHPAD.md",
-      "working": "WORKING.md"
-    }
-  },
+  "platform": "claude-code",
   "search": {
     "vector": true,
     "embedModel": "auto"
@@ -343,31 +387,10 @@ project/
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `domains` | object | `{ "default": {...} }` | Domain-to-file mapping for SCRATCHPAD/WORKING |
+| `platform` | string | auto-detected | `"claude-code"` or `"openclaw"` — determines memory file behavior |
 | `search.vector` | boolean | `true` | Enable vector embeddings (~2GB disk) |
 | `search.embedModel` | string | `"auto"` | `"auto"` for embeddinggemma-300M, `"qwen3"` for CJK-optimized |
 | `compaction.rootMaxTokens` | number | `3000` | Max token budget for ROOT.md (~100 lines) |
-
-### Domain Partitioning
-
-For projects with distinct areas, split work-state files by domain:
-
-```json
-{
-  "domains": {
-    "web": {
-      "scratchpad": "SCRATCHPAD-WEB.md",
-      "working": "WORKING-WEB.md"
-    },
-    "backend": {
-      "scratchpad": "SCRATCHPAD-BACKEND.md",
-      "working": "WORKING-BACKEND.md"
-    }
-  }
-}
-```
-
-MEMORY.md, USER.md, and TASK-QUEUE.md are always global — they represent the user, not the task domain. The compaction tree is also global.
 
 ### Search
 
@@ -380,11 +403,12 @@ qmd is optional. Use `--no-search` during init to skip it entirely. Without qmd,
 
 ## Skills
 
-Engram installs three agent skills into `.claude/skills/`:
+Hipocampus installs four agent skills into `.claude/skills/`:
 
-- **engram-core** — 7-step session start protocol + 6-step end-of-task checkpoint. Defines the structured daily log format, proactive flush rules, domain selection, and compaction trigger check. The core discipline that makes memory work.
-- **engram-compaction** — Builds the 5-level compaction tree (daily/weekly/monthly/root). Smart thresholds: copy/concat below threshold, LLM keyword-dense summary above threshold. Fixed/tentative lifecycle management. Handles `needs-summarization` nodes left by mechanical compaction.
-- **engram-search** — Search guide: ROOT.md Topics Index for "do I know about this?" judgment, hybrid vs BM25 selection, query construction rules, compaction tree fallback traversal, and guidance for working without qmd.
+- **hipocampus-core** — Session start protocol + end-of-task checkpoint, all memory writes via subagent. Platform-conditional (Claude Code uses platform auto memory; OpenClaw uses MEMORY.md/USER.md). Defines the structured daily log format, proactive flush rules, and compaction trigger check. The core discipline that makes memory work.
+- **hipocampus-compaction** — Builds the 5-level compaction tree (daily/weekly/monthly/root). Smart thresholds: copy/concat below threshold, LLM keyword-dense summary above threshold. Fixed/tentative lifecycle management. Handles `needs-summarization` nodes left by mechanical compaction.
+- **hipocampus-search** — Search guide: ROOT.md Topics Index for "do I know about this?" judgment, hybrid vs BM25 selection, query construction rules, compaction tree fallback traversal, and guidance for working without qmd.
+- **hipocampus-flush** (`/hipocampus-flush`) — Manual memory flush via subagent: dump current session context to daily raw log + mechanical compact. Use when you want to persist session state on demand. For full LLM compaction afterwards, run hipocampus-compaction.
 
 ## Task Lifecycle
 
@@ -393,12 +417,12 @@ TASK-QUEUE (backlog)          → pick up task
   ↓
 WORKING (in progress)         → actively working
   ↓
-Task completed                → checkpoint fires:
+Task completed                → subagent checkpoint:
   ├── daily log (permanent)   ← detailed structured record
   ├── WORKING                 ← task removed
   ├── TASK-QUEUE              ← task removed, follow-ups added
   ├── SCRATCHPAD              ← lessons, decisions updated
-  └── MEMORY.md               ← key facts appended
+  └── MEMORY.md               ← key facts appended (OpenClaw) / platform memory (Claude Code)
 ```
 
 TASK-QUEUE is a backlog only — completed tasks are removed, not archived. The daily log (`memory/YYYY-MM-DD.md`) is the permanent record of all completed work. This keeps TASK-QUEUE small and focused on what's ahead.
@@ -410,19 +434,19 @@ The memory system is formally specified in [`spec/`](./spec/):
 - [layers.md](./spec/layers.md) — 3-tier architecture, ROOT.md rationale, fixed/tentative node concept
 - [file-formats.md](./spec/file-formats.md) — exact format of each file including ROOT.md and compaction nodes
 - [compaction.md](./spec/compaction.md) — 5-level compaction tree algorithm, smart thresholds, lifecycle
-- [checkpoint.md](./spec/checkpoint.md) — 7-step session start + 6-step end-of-task checkpoint protocol
+- [checkpoint.md](./spec/checkpoint.md) — session start + end-of-task checkpoint protocol (platform-conditional)
 
 ## Multi-Developer Projects
 
-`npx engram init` auto-appends memory files to `.gitignore` — personal memory should not be committed.
+`npx hipocampus init` auto-appends memory files to `.gitignore` — personal memory should not be committed.
 
-**What to commit:** `engram.config.json` and `.claude/skills/` — these define the shared project memory structure. All team members get the same domain partitioning and skill documents.
+**What to commit:** `hipocampus.config.json` and `.claude/skills/` — these define the shared project memory structure. All team members get the same skill documents.
 
-**What not to commit:** Everything else (MEMORY.md, USER.md, SCRATCHPAD, WORKING, TASK-QUEUE, memory/, knowledge/, plans/) is personal context. Each developer runs `npx engram init` to set up their own memory.
+**What not to commit:** Everything else (MEMORY.md, USER.md if present, SCRATCHPAD, WORKING, TASK-QUEUE, memory/, knowledge/, plans/) is personal context. Each developer runs `npx hipocampus init` to set up their own memory.
 
 ## Built at clawy.pro
 
-Engram is extracted from the memory system powering 80+ production AI bots at [clawy.pro](https://clawy.pro). It's been running in production since early 2026, handling thousands of conversations across diverse use cases.
+Hipocampus is extracted from the memory system powering 80+ production AI bots at [clawy.pro](https://clawy.pro). It's been running in production since early 2026, handling thousands of conversations across diverse use cases.
 
 ## License
 

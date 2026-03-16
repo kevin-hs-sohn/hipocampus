@@ -1,5 +1,5 @@
 ---
-name: engram-compaction
+name: hipocampus-compaction
 description: "Build 5-level compaction tree (daily/weekly/monthly/root) with smart thresholds and fixed/tentative lifecycle. Run at session start when triggers are met, or via external scheduler."
 ---
 
@@ -41,7 +41,7 @@ period: 2026-W11
 
 ## When to Run
 
-Called from engram-core Session Start step 7, or directly by an external scheduler (e.g., OpenClaw heartbeat). Check trigger conditions below.
+Called from hipocampus-core Session Start step 7, or directly by an external scheduler (e.g., OpenClaw heartbeat). Check trigger conditions below.
 
 ## Trigger Conditions
 
@@ -66,11 +66,31 @@ Above threshold: generate LLM keyword-dense summary.
 
 ## Algorithm
 
+**CRITICAL — STRICT CHAIN ORDER: Steps 2→3→4→5 MUST execute in sequence. NEVER skip a level.**
+
+Each step feeds the next. Root reads from monthly. Monthly reads from weekly. Weekly reads from daily. If you skip a level, the chain breaks and data is lost or corrupted.
+
+```
+Raw → [Step 2] → Daily → [Step 3] → Weekly → [Step 4] → Monthly → [Step 5] → Root
+         ↑                    ↑                     ↑                    ↑
+     reads raw           reads daily            reads weekly        reads monthly
+     writes daily/       writes weekly/         writes monthly/     writes ROOT.md
+```
+
+**NEVER:**
+- Modify ROOT.md based on daily or weekly data (root reads ONLY from monthly)
+- Modify monthly based on daily data (monthly reads ONLY from weekly)
+- Skip Step 2 or 3 because "there's nothing new" — always verify by checking files
+- Touch ROOT.md directly without going through the full chain
+
 ### Step 1: Discover Candidates
 
 Scan `memory/` for raw files. Group by date, ISO week, and month. Check each group against trigger conditions.
 
 ### Step 2: Daily Compaction (max 1 per cycle)
+
+**Input:** raw files (`memory/YYYY-MM-DD.md`)
+**Output:** daily nodes (`memory/daily/YYYY-MM-DD.md`)
 
 For each date where raw exists and daily needs create/update:
 
@@ -98,34 +118,55 @@ topics: [keyword1, keyword2, keyword3]
 
 6. If date has changed (raw is from a past date): set `status: fixed`
 
+**CHECKPOINT:** Verify `memory/daily/` has the updated file before proceeding to Step 3.
+
 ### Step 3: Weekly Compaction (max 1 per cycle)
+
+**Input:** daily nodes (`memory/daily/YYYY-MM-DD.md`) — NEVER raw files
+**Output:** weekly nodes (`memory/weekly/YYYY-WNN.md`)
+
+**STOP-CHECK:** Did Step 2 produce or update a daily node? If not, skip Steps 3-5 entirely — there's nothing new to propagate.
 
 For each ISO week where dailies exist and weekly needs create/update:
 
-1. Read all daily compaction files for that week
+1. Read all daily compaction files for that week (from `memory/daily/`, NOT from `memory/`)
 2. Count combined lines — compare against ~300 line threshold
 3. Below threshold: concat all dailies
 4. Above threshold: generate keyword-dense weekly summary
 5. Write to `memory/weekly/YYYY-WNN.md` with frontmatter
 6. If ISO week ended + 7 days elapsed: set `status: fixed`
 
+**CHECKPOINT:** Verify `memory/weekly/` has the updated file before proceeding to Step 4.
+
 ### Step 4: Monthly Compaction (max 1 per cycle)
+
+**Input:** weekly nodes (`memory/weekly/YYYY-WNN.md`) — NEVER daily or raw files
+**Output:** monthly nodes (`memory/monthly/YYYY-MM.md`)
+
+**STOP-CHECK:** Did Step 3 produce or update a weekly node? If not, skip Steps 4-5 — there's nothing new to propagate.
 
 For each month where weeklies exist and monthly needs create/update:
 
-1. Read all weekly compaction files for that month
+1. Read all weekly compaction files for that month (from `memory/weekly/`, NOT from `memory/daily/`)
 2. Count combined lines — compare against ~500 line threshold
 3. Below threshold: concat all weeklies
 4. Above threshold: generate keyword-dense monthly summary
 5. Write to `memory/monthly/YYYY-MM.md` with frontmatter
 6. If month ended + 7 days elapsed: set `status: fixed`
 
+**CHECKPOINT:** Verify `memory/monthly/` has the updated file before proceeding to Step 5.
+
 ### Step 5: Root Compaction
 
-When any monthly node is created or updated:
+**Input:** monthly nodes (`memory/monthly/YYYY-MM.md`) — NEVER weekly, daily, or raw files
+**Output:** `memory/ROOT.md`
+
+**STOP-CHECK:** Did Step 4 produce or update a monthly node? If not, DO NOT touch ROOT.md.
+
+When a monthly node is created or updated:
 
 1. Read existing `memory/ROOT.md` (if exists)
-2. Read the new/updated monthly node
+2. Read the new/updated monthly node (from `memory/monthly/`, NOT from any other directory)
 3. Recursive compaction: `root = recompact(existing_root + monthly_changes)`
    - **Active Context**: replace with current week's highlights — what's in progress, immediate priorities
    - **Recent Patterns**: update with newly emerged cross-cutting insights
@@ -156,7 +197,14 @@ last-updated: YYYY-MM-DD
 - topic-keyword: sub-keywords
 ```
 
-### Step 6: Re-index
+### Step 6: OpenClaw ROOT.md Sync
+
+**OpenClaw only:** Sync ROOT.md content into the "Compaction Root" section of MEMORY.md:
+- Read MEMORY.md, find `## Compaction Root` section
+- Replace everything between `## Compaction Root` and the next `##` heading (or EOF) with the Active Context, Recent Patterns, and Topics Index sections from ROOT.md
+- This keeps the auto-loaded MEMORY.md in sync with the canonical ROOT.md
+
+### Step 7: Re-index
 
 After writing any compaction files:
 
@@ -164,7 +212,7 @@ After writing any compaction files:
 qmd update
 ```
 
-If vector search is enabled (`search.vector: true` in `engram.config.json`):
+If vector search is enabled (`search.vector: true` in `hipocampus.config.json`):
 
 ```bash
 qmd embed
@@ -172,6 +220,8 @@ qmd embed
 
 ## Guards
 
+- **CHAIN ORDER IS MANDATORY:** Daily→Weekly→Monthly→Root. Never skip a level. Never read from a wrong source directory.
+- **Each level reads ONLY from its immediate predecessor:** Root←Monthly←Weekly←Daily←Raw
 - Raw files: **never delete** (permanent leaf nodes)
 - Max 1 daily + 1 weekly + 1 monthly + 1 root per compaction cycle
 - No empty summaries (minimum 50 bytes)
@@ -179,6 +229,7 @@ qmd embed
 - qmd update failure: warning only, not fatal
 - Root self-compresses when exceeding size cap (shrink older topics first)
 - Keyword-dense format only — no prose, no narrative. Optimized for BM25 recall.
+- **If you feel tempted to "just update ROOT.md quickly" — STOP. Run the full chain.**
 
 ## Edge Cases
 

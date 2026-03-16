@@ -14,19 +14,18 @@ const command = args[0];
 
 if (!command || command === "--help" || command === "-h") {
   console.log(`
-  engram — Drop-in memory harness for AI agents
+  hipocampus — Drop-in memory harness for AI agents
 
   Usage:
-    engram init                          Initialize memory system in current directory
-    engram init --domains web,backend    Initialize with domain partitioning
-    engram init --no-vector              Disable vector search (BM25 only)
-    engram init --no-search              Skip qmd entirely (use tree traversal only)
-    engram compact                       Run mechanical compaction (called automatically by hooks)
+    hipocampus init                          Initialize memory system in current directory
+    hipocampus init --no-vector              Disable vector search (BM25 only)
+    hipocampus init --no-search              Skip qmd entirely (use tree traversal only)
+    hipocampus compact                       Run mechanical compaction (called automatically by hooks)
 
   Options:
-    --domains <list>   Comma-separated domain names for SCRATCHPAD/WORKING partitioning
     --no-vector        Disable vector search (saves ~2GB disk, no embedding models)
     --no-search        Skip qmd installation and search setup (compaction tree still works)
+    --platform <name>  Override platform detection (claude-code or openclaw)
     --help, -h         Show this help
 `);
   process.exit(0);
@@ -40,18 +39,20 @@ if (command === "compact") {
 }
 
 if (command !== "init") {
-  console.error(`Unknown command: ${command}. Run 'engram --help' for usage.`);
+  console.error(`Unknown command: ${command}. Run 'hipocampus --help' for usage.`);
   process.exit(1);
 }
 
-const domainsIdx = args.indexOf("--domains");
-const domains = domainsIdx !== -1 && args[domainsIdx + 1]
-  ? args[domainsIdx + 1].split(",").map(d => d.trim()).filter(Boolean)
-  : null;
 const noVector = args.includes("--no-vector");
 const noSearch = args.includes("--no-search");
+const platformIdx = args.indexOf("--platform");
+const platformOverride = platformIdx !== -1 ? args[platformIdx + 1] : null;
+if (platformOverride && !["claude-code", "openclaw"].includes(platformOverride)) {
+  console.error(`  ! Unknown platform: ${platformOverride}. Use "claude-code" or "openclaw".`);
+  process.exit(1);
+}
 
-console.log("\n  engram — initializing memory system\n");
+console.log("\n  hipocampus — initializing memory system\n");
 
 // ─── Step 1: Check qmd ───
 
@@ -86,6 +87,19 @@ for (const dir of dirs) {
   }
 }
 
+// ─── Platform detection (needed before template copying) ───
+
+const agentsMd = join(CWD, "AGENTS.md");
+const claudeMd = join(CWD, "CLAUDE.md");
+const openclawJson = join(CWD, "openclaw.json");
+
+const isOpenClaw = platformOverride
+  ? platformOverride === "openclaw"
+  : existsSync(agentsMd);
+const platform = isOpenClaw ? "openclaw" : "claude-code";
+
+console.log(`  ~ platform: ${platform}`);
+
 // ─── Step 3: Copy templates ───
 
 function copyTemplate(filename, destName) {
@@ -96,8 +110,11 @@ function copyTemplate(filename, destName) {
   }
 }
 
-copyTemplate("MEMORY.md");
-copyTemplate("USER.md");
+if (isOpenClaw) {
+  copyTemplate("MEMORY.md");
+  copyTemplate("USER.md");
+  copyTemplate("HEARTBEAT.md");
+}
 copyTemplate("TASK-QUEUE.md");
 
 // Create ROOT.md stub if it doesn't exist
@@ -125,20 +142,12 @@ last-updated: ${today}
   console.log("  + memory/ROOT.md");
 }
 
-if (domains) {
-  for (const domain of domains) {
-    const upper = domain.toUpperCase();
-    copyTemplate("SCRATCHPAD.md", `SCRATCHPAD-${upper}.md`);
-    copyTemplate("WORKING.md", `WORKING-${upper}.md`);
-  }
-} else {
-  copyTemplate("SCRATCHPAD.md");
-  copyTemplate("WORKING.md");
-}
+copyTemplate("SCRATCHPAD.md");
+copyTemplate("WORKING.md");
 
 // ─── Step 4: Install skills ───
 
-const skillNames = ["engram-core", "engram-compaction", "engram-search"];
+const skillNames = ["hipocampus-core", "hipocampus-compaction", "hipocampus-search", "hipocampus-flush"];
 const skillsBase = join(CWD, ".claude", "skills");
 
 for (const skill of skillNames) {
@@ -154,10 +163,10 @@ for (const skill of skillNames) {
 
 // ─── Step 5: Create config ───
 
-const configDest = join(CWD, "engram.config.json");
+const configDest = join(CWD, "hipocampus.config.json");
 if (!existsSync(configDest)) {
   const config = {
-    domains: {},
+    platform,
     search: {
       vector: !noVector,
       embedModel: "auto",
@@ -167,22 +176,8 @@ if (!existsSync(configDest)) {
     },
   };
 
-  if (domains) {
-    for (const d of domains) {
-      config.domains[d] = {
-        scratchpad: `SCRATCHPAD-${d.toUpperCase()}.md`,
-        working: `WORKING-${d.toUpperCase()}.md`,
-      };
-    }
-  } else {
-    config.domains.default = {
-      scratchpad: "SCRATCHPAD.md",
-      working: "WORKING.md",
-    };
-  }
-
   writeFileSync(configDest, JSON.stringify(config, null, 2) + "\n");
-  console.log("  + engram.config.json");
+  console.log("  + hipocampus.config.json");
 }
 
 // ─── Step 6: Register qmd collections ───
@@ -217,48 +212,87 @@ if (hasQmd) {
   }
 }
 
-// ─── Step 7: Platform detection & protocol injection ───
+// ─── Step 7: Protocol injection ───
 
-const agentsMd = join(CWD, "AGENTS.md");
-const claudeMd = join(CWD, "CLAUDE.md");
-const openclawJson = join(CWD, "openclaw.json");
+const PROTOCOL_BLOCK_OC = `
+## Hipocampus — Memory Protocol
 
-const PROTOCOL_BLOCK = `
-## Engram — Memory Protocol
+This project uses hipocampus 3-tier memory. Follow \`.claude/skills/hipocampus-core/SKILL.md\`.
+**All memory write operations MUST be dispatched to subagents** to keep the main session context clean.
 
-This project uses engram 3-tier memory. Follow \`.claude/skills/engram-core/SKILL.md\`.
+### FIRST RESPONSE RULE — MANDATORY
+**On the very first user message of every session**, before doing ANYTHING else:
+Run the Session Start protocol below FIRST (ALL steps. NO SKIP.) This takes priority over ANY user request — even if the user asks you to do something specific. Complete ALL steps below, ONLY THEN respond to the user.
 
-### Session Start (mandatory)
-1. Read engram.config.json, then load domain-matched files per engram-core skill
-2. memory/ROOT.md is auto-loaded (full memory topic index)
-3. Read: most recent memory/daily/*.md (if exists)
-4. Check compaction triggers — run engram-compaction skill if needed
+### Session Start (run on first user message, every step required.)
+**ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
+1. **DO NOT SKIP** Read \`SCRATCHPAD.md\` — current work state
+2. **DO NOT SKIP** Read \`WORKING.md\` — active tasks
+3. **DO NOT SKIP** Read \`TASK-QUEUE.md\` — pending items
+4. **DO NOT SKIP** **Compaction maintenance (subagent):** Dispatch a subagent to scan memory/daily/, memory/weekly/, memory/monthly/ for "needs-summarization" files. If found, process per hipocampus-compaction skill using subagents (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\`.
+**ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
 
-### End-of-Task Checkpoint (mandatory)
-1. SCRATCHPAD.md — current state, decisions, next steps
-2. MEMORY.md — APPEND ONLY (never modify Core section)
-3. USER.md — newly learned user info
-4. memory/YYYY-MM-DD.md — append detailed record
-5. WORKING.md — remove completed tasks, update status
-6. TASK-QUEUE.md — remove completed tasks, add follow-ups (daily log is the completion record)
+Note: MEMORY.md, USER.md, memory/ROOT.md (via Compaction Root section) are auto-loaded by the platform.
+
+### End-of-Task Checkpoint (mandatory — subagent)
+After completing any task, **dispatch a subagent** to append a structured log to \`memory/YYYY-MM-DD.md\`.
+Compose the log with ## headings per topic: what was requested, analysis, decisions with rationale, outcomes, files changed.
+**The subagent only needs to do one thing: append to the daily log.** Everything else (SCRATCHPAD, WORKING, TASK-QUEUE, MEMORY.md) is updated lazily at next session start or by the agent naturally during work.
+**You must provide the task summary to the subagent** — it has no access to the conversation.
 
 ### Rules
-- **Never skip checkpoints** — every task completion MUST trigger the 6-step checkpoint
+- **Never skip Session Start** — every session begins with it, no exceptions
+- **Never skip checkpoints** — every task completion MUST append to daily log via subagent
+- **All memory writes via subagent** — never pollute main session with memory operations
 - MEMORY.md Core section: never modify or delete
 - memory/*.md (raw): permanent, never delete
-- Search: see \`.claude/skills/engram-search/SKILL.md\`
+- Search: see \`.claude/skills/hipocampus-search/SKILL.md\`
 - If this session ends NOW, the next session must be able to continue immediately
 `;
 
-const hasEngram = (text) => text.toLowerCase().includes("engram");
-const isOpenClaw = existsSync(agentsMd);
+const PROTOCOL_BLOCK_CC = `
+## Hipocampus — Memory Protocol
+
+This project uses hipocampus 3-tier memory. Follow \`.claude/skills/hipocampus-core/SKILL.md\`.
+**All memory write operations MUST be dispatched to subagents** to keep the main session context clean.
+
+### FIRST RESPONSE RULE — MANDATORY
+**On the very first user message of every session**, before doing ANYTHING else:
+Run the Session Start protocol below FIRST (ALL steps. NO SKIP.) This takes priority over ANY user request — even if the user asks you to do something specific. Complete ALL steps below, ONLY THEN respond to the user.
+
+### Session Start (run on first user message.)
+SCRATCHPAD.md, WORKING.md, TASK-QUEUE.md, memory/ROOT.md are auto-loaded via @import below — no manual read needed.
+**This procedure must be completed before responding to the user NO MATTER WHAT**
+1. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (subagent):** Dispatch a subagent to run hipocampus-compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\` + \`qmd embed\`. Always run — do not check first, the subagent handles it.
+**This procedure must be completed before responding to the user NO MATTER WHAT**
+
+### End-of-Task Checkpoint (mandatory — subagent)
+After completing any task, **dispatch a subagent** to append a structured log to \`memory/YYYY-MM-DD.md\`.
+Compose the log with ## headings per topic: what was requested, analysis, decisions with rationale, outcomes, files changed.
+**The subagent only needs to do one thing: append to the daily log.** Everything else (SCRATCHPAD, WORKING, TASK-QUEUE) is updated lazily at next session start or by the agent naturally during work.
+**You must provide the task summary to the subagent** — it has no access to the conversation.
+
+### Rules
+- **Never skip Session Start** — every session begins with it, no exceptions
+- **Never skip checkpoints** — every task completion MUST append to daily log via subagent
+- **All memory writes via subagent** — never pollute main session with memory operations
+- memory/*.md (raw): permanent, never delete
+- Search: see \`.claude/skills/hipocampus-search/SKILL.md\`
+- If this session ends NOW, the next session must be able to continue immediately
+`;
+
+const hasHipocampus = (text) => text.toLowerCase().includes("hipocampus");
 
 if (isOpenClaw) {
   // ── OpenClaw path ──
-  const content = readFileSync(agentsMd, "utf8");
-  if (!hasEngram(content)) {
-    appendFileSync(agentsMd, "\n" + PROTOCOL_BLOCK);
-    console.log("  + appended engram protocol to AGENTS.md");
+  if (existsSync(agentsMd)) {
+    const content = readFileSync(agentsMd, "utf8");
+    if (!hasHipocampus(content)) {
+      // Prepend: protocol block at top of AGENTS.md (highest priority)
+      const newContent = PROTOCOL_BLOCK_OC.trimStart() + "\n" + content;
+      writeFileSync(agentsMd, newContent);
+      console.log("  + added hipocampus protocol (top) to AGENTS.md");
+    }
   }
 
   // OpenClaw bootstraps a fixed set of files (AGENTS.md, MEMORY.md, etc.)
@@ -272,7 +306,7 @@ if (isOpenClaw) {
       appendFileSync(memoryMd, `
 ## Compaction Root
 <!-- This section serves as the ROOT.md index for platforms that can't auto-load separate files. -->
-<!-- Updated automatically by engram compact. See memory/ROOT.md for the full version. -->
+<!-- Updated automatically by hipocampus compact. See memory/ROOT.md for the full version. -->
 
 ### Active Context (recent ~7 days)
 <!-- Current work and priorities -->
@@ -288,39 +322,37 @@ if (isOpenClaw) {
   }
 } else {
   // ── Claude Code path ──
-  const rootImport = "@memory/ROOT.md\n";
+  // Protocol block goes at the TOP of CLAUDE.md (highest priority)
+  // @memory/ROOT.md import goes after protocol block but before existing content
+
+  // @imports: platform auto-loads these at session start (no agent read needed)
+  const importBlock = [
+    "@memory/ROOT.md",
+    "@SCRATCHPAD.md",
+    "@WORKING.md",
+    "@TASK-QUEUE.md",
+  ].join("\n") + "\n";
 
   if (existsSync(claudeMd)) {
     const content = readFileSync(claudeMd, "utf8");
-    if (!hasEngram(content)) {
-      let newContent = content;
-      // Insert @import after existing @ imports, or at the very top
-      if (!content.includes("@memory/ROOT.md")) {
-        const lines = content.split("\n");
-        let insertIdx = 0;
-        // Find the last @ import line to insert after it
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].startsWith("@")) insertIdx = i + 1;
-        }
-        lines.splice(insertIdx, 0, (insertIdx > 0 ? "" : "") + "@memory/ROOT.md", "");
-        newContent = lines.join("\n");
-      }
-      newContent += "\n" + PROTOCOL_BLOCK;
+    if (!hasHipocampus(content)) {
+      // Prepend: protocol block + @imports + existing content
+      const newContent = PROTOCOL_BLOCK_CC.trimStart() + "\n" + importBlock + "\n" + content;
       writeFileSync(claudeMd, newContent);
-      console.log("  + added ROOT.md import and engram protocol to CLAUDE.md");
+      console.log("  + added hipocampus protocol (top) and @imports to CLAUDE.md");
     }
   } else {
-    // Create new CLAUDE.md
-    writeFileSync(claudeMd, rootImport + "\n" + PROTOCOL_BLOCK);
-    console.log("  + created CLAUDE.md with ROOT.md import and engram protocol");
+    // Create new CLAUDE.md: protocol block first, then @imports
+    writeFileSync(claudeMd, PROTOCOL_BLOCK_CC.trimStart() + "\n" + importBlock);
+    console.log("  + created CLAUDE.md with hipocampus protocol and @imports");
   }
 }
 
 // ─── Step 8: .gitignore ───
 
 const gitignorePath = join(CWD, ".gitignore");
-const ENGRAM_GITIGNORE = `
-# engram - personal memory (don't commit)
+const HIPOCAMPUS_GITIGNORE = `
+# hipocampus - personal memory (don't commit)
 MEMORY.md
 USER.md
 SCRATCHPAD*.md
@@ -333,24 +365,27 @@ plans/
 
 if (existsSync(gitignorePath)) {
   const gi = readFileSync(gitignorePath, "utf8");
-  if (!gi.includes("engram")) {
-    appendFileSync(gitignorePath, ENGRAM_GITIGNORE);
-    console.log("  + added engram entries to .gitignore");
+  if (!gi.includes("hipocampus")) {
+    appendFileSync(gitignorePath, HIPOCAMPUS_GITIGNORE);
+    console.log("  + added hipocampus entries to .gitignore");
   }
 } else {
-  writeFileSync(gitignorePath, ENGRAM_GITIGNORE.trimStart());
-  console.log("  + created .gitignore with engram entries");
+  writeFileSync(gitignorePath, HIPOCAMPUS_GITIGNORE.trimStart());
+  console.log("  + created .gitignore with hipocampus entries");
 }
 
 // ─── Step 9: Register pre-compaction hook ───
 
-// Both Claude Code and OpenClaw: run `engram compact` before context compression.
-// This backs up the transcript and runs mechanical compaction (copy/concat).
+// PreCompact only supports type: "command" hooks (not agent/prompt/http).
+// Mechanical compaction runs here; LLM pass (needs-summarization, flush) is handled by:
+//   - Claude Code: Session Start step 9 + /hipocampus-flush manual command
+//   - OpenClaw: HEARTBEAT.md + Session Start step 9
 
-const engramBin = join(ROOT, "cli", "init.mjs");
+const hipocampusBin = join(ROOT, "cli", "init.mjs");
+const compactCmd = `node "${hipocampusBin}" compact --stdin`;
 
 if (!isOpenClaw) {
-  // Claude Code: register PreCompact hook in .claude/settings.json
+  // Claude Code: register PreCompact command hook in .claude/settings.json
   const settingsDir = join(CWD, ".claude");
   const settingsPath = join(settingsDir, "settings.json");
   let settings = {};
@@ -369,37 +404,62 @@ if (!isOpenClaw) {
         hooks: [
           {
             type: "command",
-            command: `node "${engramBin}" compact`,
+            command: compactCmd,
             timeout: 30000,
           },
         ],
       },
     ];
 
+    // Also register TaskCompleted hook for mechanical compaction after each task
+    if (!settings.hooks.TaskCompleted) {
+      settings.hooks.TaskCompleted = [
+        {
+          matcher: "",
+          hooks: [
+            {
+              type: "command",
+              command: `node "${hipocampusBin}" compact`,
+              timeout: 30000,
+            },
+          ],
+        },
+      ];
+    }
+
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-    console.log("  + registered PreCompact hook (auto-compaction before context compression)");
+    console.log("  + registered PreCompact + TaskCompleted hooks (mechanical compaction)");
   }
 } else {
-  // OpenClaw: register pre-compaction hook in openclaw.json
+  // OpenClaw: compaction is handled by two mechanisms:
+  //   1. HEARTBEAT.md — LLM pass: needs-summarization processing + qmd reindex (every heartbeat)
+  //   2. hipocampus compact — mechanical compaction: called manually or by session:compact:before hook
+  //
+  // HEARTBEAT.md is already copied in Step 3.
+  // Register mechanical compact in openclaw.json for session:compact:before if possible.
   if (existsSync(openclawJson)) {
     try {
       const oc = JSON.parse(readFileSync(openclawJson, "utf8"));
-      if (!oc.hooks?.preCompact) {
+      if (!oc.hooks?.internal?.entries?.["hipocampus-compact"]) {
         oc.hooks = oc.hooks || {};
-        oc.hooks.preCompact = {
-          command: `node "${engramBin}" compact`,
-          timeout: 30000,
+        oc.hooks.internal = oc.hooks.internal || { enabled: true, entries: {} };
+        oc.hooks.internal.entries = oc.hooks.internal.entries || {};
+        oc.hooks.internal.entries["hipocampus-compact"] = {
+          enabled: true,
+          env: { HIPOCAMPUS_BIN: hipocampusBin },
         };
         writeFileSync(openclawJson, JSON.stringify(oc, null, 2) + "\n");
-        console.log("  + registered pre-compaction hook in openclaw.json");
+        console.log("  + registered hipocampus-compact hook entry in openclaw.json");
       }
     } catch { /* openclaw.json not parseable */ }
   }
+  console.log("  + HEARTBEAT.md includes hipocampus compaction maintenance tasks");
 }
 
 // ─── Done ───
 
-console.log(`
+if (isOpenClaw) {
+  console.log(`
   done! Your agent now has structured memory.
 
   Next steps:
@@ -407,3 +467,13 @@ console.log(`
     2. Start a conversation — the agent will follow the memory protocol
     3. Memory builds up automatically over sessions
 `);
+} else {
+  console.log(`
+  done! Your agent now has structured memory.
+
+  Next steps:
+    1. Your profile is managed by the platform's auto memory
+    2. Start a conversation — the agent will follow the memory protocol
+    3. Memory builds up automatically over sessions
+`);
+}

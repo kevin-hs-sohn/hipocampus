@@ -24,6 +24,8 @@ Long-term memory with two sections: Core (frozen) and Adaptive (compactable).
 - Target size: ~50 lines total
 - When over limit: consolidate oldest Adaptive entries, move detail to `knowledge/`
 
+> **Claude Code:** This file is not created. The platform's auto memory system handles long-term fact storage natively. See `hipocampus-core` skill for platform-specific checkpoint behavior.
+
 ### USER.md
 
 User profile built up over conversations.
@@ -48,9 +50,11 @@ User profile built up over conversations.
 <!-- Agent: update as projects change -->
 ```
 
+> **Claude Code:** This file is not created. The platform's auto memory (user type) handles user profile storage natively.
+
 ### SCRATCHPAD.md
 
-Active working state. Domain-partitioned when multiple domains are configured.
+Active working state.
 
 ```markdown
 # Scratchpad
@@ -69,7 +73,7 @@ Target: ~150 lines. When exceeded, remove completed items.
 
 ### WORKING.md
 
-Current task tracking. Domain-partitioned when multiple domains are configured.
+Current task tracking.
 
 ```markdown
 # Active Tasks
@@ -79,7 +83,7 @@ Current task tracking. Domain-partitioned when multiple domains are configured.
 <!-- Format per task:
 ## [Task Name]
 - Status: in-progress | blocked | completed
-- Domain: default
+
 - Progress: brief description
 -->
 ```
@@ -146,7 +150,7 @@ last-updated: 2026-03-15
 ---
 
 ## Active Context (recent ~7 days)
-- engram open-source: finalizing spec, ROOT.md format refactor in progress
+- hipocampus open-source: finalizing spec, ROOT.md format refactor in progress
 - legal research: Civil Act §750 tort liability brief, 2 precedents → knowledge/legal-750.md
 
 ## Recent Patterns
@@ -155,10 +159,10 @@ last-updated: 2026-03-15
 
 ## Historical Summary
 - 2026-01~02: initial 3-tier design, checkpoint protocol, clawy.pro K8s launch
-- 2026-03: engram open-source, qmd integration, BM25+vector hybrid search
+- 2026-03: hipocampus open-source, qmd integration, BM25+vector hybrid search
 
 ## Topics Index
-- engram: compaction tree, ROOT.md, file-formats, skills → spec/
+- hipocampus: compaction tree, ROOT.md, file-formats, skills → spec/
 - legal: Civil Act §750, tort liability, precedents → knowledge/legal-750.md
 - clawy.pro: K8s infra, provisioning, 80-bot deployment
 - qmd: BM25, vector hybrid, embeddinggemma-300M

@@ -1,10 +1,10 @@
 {
-  "name": "engram",
-  "version": "0.1.0",
+  "name": "hipocampus",
+  "version": "0.1.2",
   "description": "Drop-in memory harness for AI agents — 3-tier memory, compaction tree, hybrid search via qmd",
   "type": "module",
   "bin": {
-    "engram": "./cli/init.mjs"
+    "hipocampus": "./cli/init.mjs"
   },
   "keywords": [
     "ai-agent",
@@ -19,7 +19,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kevin-hs-sohn/engram"
+    "url": "https://github.com/kevin-hs-sohn/hipocampus"
   },
   "files": [
     "cli/",

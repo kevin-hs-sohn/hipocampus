@@ -1,9 +1,9 @@
 ---
-name: engram-search
+name: hipocampus-search
 description: "Search memory using qmd (BM25 + optional vector) and compaction tree traversal. Use ROOT.md to decide whether to search memory or look externally. Always check memory before external lookups."
 ---
 
-# Engram Search
+# Hipocampus Search
 
 ## Quick Reference
 
@@ -18,7 +18,7 @@ description: "Search memory using qmd (BM25 + optional vector) and compaction tr
 
 ## Which Search to Use
 
-Check `engram.config.json`:
+Check `hipocampus.config.json`:
 - `search.vector: true` (default) → `qmd query` for best results (BM25 + vector + rerank)
 - `search.vector: false` → `qmd search` for BM25 keyword search
 

@@ -1,11 +1,13 @@
 /**
- * engram compact — Mechanical compaction of the memory tree.
+ * hipocampus compact — Mechanical compaction of the memory tree.
  *
  * Runs as a pre-compaction hook (before platform context compression).
  * Handles below-threshold cases (copy/concat) without LLM.
- * Above-threshold cases are skipped — the agent handles those via engram-compaction skill.
+ * Above-threshold cases are marked needs-summarization — the agent hook handles those.
  *
- * Also backs up the session transcript if TRANSCRIPT_PATH is set.
+ * Transcript source (checked in order):
+ *   1. --stdin flag: read JSON from stdin (PreCompact hook passes { transcript_path, ... })
+ *   2. TRANSCRIPT_PATH env var (legacy)
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from "node:fs";
@@ -13,14 +15,29 @@ import { join } from "node:path";
 
 const CWD = process.cwd();
 const MEMORY = join(CWD, "memory");
+const args = process.argv.slice(2);
 
-const today = new Date().toISOString().slice(0, 10);
+// Use local date (not UTC) to match the user's calendar day
+const now = new Date();
+const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
 // ─── Transcript backup ───
 
-const transcriptPath = process.env.TRANSCRIPT_PATH;
+let transcriptPath = process.env.TRANSCRIPT_PATH;
+
+// --stdin: read transcript_path from PreCompact hook JSON on stdin
+if (args.includes("--stdin")) {
+  try {
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    const stdinData = JSON.parse(Buffer.concat(chunks).toString());
+    if (stdinData.transcript_path) transcriptPath = stdinData.transcript_path;
+  } catch { /* stdin not available or not JSON — fall through to env var */ }
+}
+
 if (transcriptPath && existsSync(transcriptPath)) {
-  const backupPath = join(MEMORY, `.session-transcript-${today}.bak`);
+  const ext = transcriptPath.endsWith(".jsonl") ? "jsonl" : "bak";
+  const backupPath = join(MEMORY, `.session-transcript-${today}.${ext}`);
   mkdirSync(MEMORY, { recursive: true });
   copyFileSync(transcriptPath, backupPath);
 }
@@ -28,7 +45,7 @@ if (transcriptPath && existsSync(transcriptPath)) {
 // ─── Load config ───
 
 let config = {};
-const configPath = join(CWD, "engram.config.json");
+const configPath = join(CWD, "hipocampus.config.json");
 if (existsSync(configPath)) {
   try { config = JSON.parse(readFileSync(configPath, "utf8")); } catch { /* use defaults */ }
 }
@@ -87,10 +104,10 @@ const rawDates = listRawDates();
 let dailyUpdated = false;
 
 for (const date of rawDates) {
-  if (date === today) continue; // don't compact today's in-progress log
-
   const rawPath = join(MEMORY, `${date}.md`);
   const dailyPath = join(dailyDir, `${date}.md`);
+  const isToday = date === today;
+  const status = isToday ? "tentative" : "fixed";
 
   // Skip if daily node already exists and is fixed (no need to rewrite)
   if (existsSync(dailyPath)) {
@@ -105,12 +122,12 @@ for (const date of rawDates) {
   if (rawLines <= DAILY_THRESHOLD) {
     // Below threshold — copy verbatim
     const rawContent = readFileSync(rawPath, "utf8");
-    const frontmatter = `---\ntype: daily\nstatus: fixed\nperiod: ${date}\nsource-files: [memory/${date}.md]\ntopics: []\n---\n\n`;
+    const frontmatter = `---\ntype: daily\nstatus: ${status}\nperiod: ${date}\nsource-files: [memory/${date}.md]\ntopics: []\n---\n\n`;
     writeFileSync(dailyPath, frontmatter + rawContent);
     dailyUpdated = true;
-  } else if (!existsSync(dailyPath)) {
+  } else if (!existsSync(dailyPath) || isToday) {
     // Above threshold — mark for agent processing
-    const placeholder = `---\ntype: daily\nstatus: needs-summarization\nperiod: ${date}\nsource-files: [memory/${date}.md]\nlines: ${rawLines}\n---\n\nThis daily node exceeds ${DAILY_THRESHOLD} lines and needs LLM summarization.\nRun engram-compaction skill to generate the summary.\n`;
+    const placeholder = `---\ntype: daily\nstatus: needs-summarization\nperiod: ${date}\nsource-files: [memory/${date}.md]\nlines: ${rawLines}\n---\n\nThis daily node exceeds ${DAILY_THRESHOLD} lines and needs LLM summarization.\nRun hipocampus-compaction skill to generate the summary.\n`;
     writeFileSync(dailyPath, placeholder);
     dailyUpdated = true;
   }
@@ -138,13 +155,17 @@ let weeklyUpdated = false;
 for (const [week, dates] of Object.entries(weekGroups)) {
   const weeklyPath = join(weeklyDir, `${week}.md`);
 
-  // Check if all dates in this week are past (week is complete)
+  // Determine status: fixed if week ended + 7 days, otherwise tentative
   const allPast = dates.every(d => d < today);
-  if (!allPast) continue; // don't compact current week's incomplete data
-
-  // Check if oldest date is 7+ days old
   const oldestDate = dates[0];
-  if (daysSince(oldestDate) < 7) continue;
+  const isFixed = allPast && daysSince(oldestDate) >= 7;
+  const status = isFixed ? "fixed" : "tentative";
+
+  // Skip if already fixed
+  if (existsSync(weeklyPath)) {
+    const existing = readFileSync(weeklyPath, "utf8");
+    if (existing.includes("status: fixed")) continue;
+  }
 
   // Combine daily contents
   let combined = "";
@@ -164,12 +185,12 @@ for (const [week, dates] of Object.entries(weekGroups)) {
 
   if (totalLines <= WEEKLY_THRESHOLD) {
     // Below threshold — concat
-    const frontmatter = `---\ntype: weekly\nstatus: fixed\nperiod: ${week}\ndates: ${dates[0]} to ${dates[dates.length - 1]}\nsource-files: [${dates.map(d => `memory/daily/${d}.md`).join(", ")}]\ntopics: []\n---\n`;
+    const frontmatter = `---\ntype: weekly\nstatus: ${status}\nperiod: ${week}\ndates: ${dates[0]} to ${dates[dates.length - 1]}\nsource-files: [${dates.map(d => `memory/daily/${d}.md`).join(", ")}]\ntopics: []\n---\n`;
     writeFileSync(weeklyPath, frontmatter + combined);
     weeklyUpdated = true;
-  } else if (!existsSync(weeklyPath)) {
+  } else if (!existsSync(weeklyPath) || status === "tentative") {
     // Above threshold — mark for agent
-    const placeholder = `---\ntype: weekly\nstatus: needs-summarization\nperiod: ${week}\ndates: ${dates[0]} to ${dates[dates.length - 1]}\nlines: ${totalLines}\n---\n\nThis weekly node exceeds ${WEEKLY_THRESHOLD} lines and needs LLM summarization.\nRun engram-compaction skill to generate the summary.\n`;
+    const placeholder = `---\ntype: weekly\nstatus: needs-summarization\nperiod: ${week}\ndates: ${dates[0]} to ${dates[dates.length - 1]}\nlines: ${totalLines}\n---\n\nThis weekly node exceeds ${WEEKLY_THRESHOLD} lines and needs LLM summarization.\nRun hipocampus-compaction skill to generate the summary.\n`;
     writeFileSync(weeklyPath, placeholder);
     weeklyUpdated = true;
   }
@@ -204,10 +225,17 @@ let monthlyUpdated = false;
 for (const [month, weeks] of Object.entries(monthGroups)) {
   const monthlyPath = join(monthlyDir, `${month}.md`);
 
-  // Check if month has ended + 7 days
+  // Determine status: fixed if month ended + 7 days, otherwise tentative
   const monthEnd = new Date(Date.UTC(parseInt(month.slice(0, 4)), parseInt(month.slice(5)) , 0));
   const monthEndStr = monthEnd.toISOString().slice(0, 10);
-  if (daysSince(monthEndStr) < 7) continue;
+  const isFixed = daysSince(monthEndStr) >= 7;
+  const status = isFixed ? "fixed" : "tentative";
+
+  // Skip if already fixed
+  if (existsSync(monthlyPath)) {
+    const existing = readFileSync(monthlyPath, "utf8");
+    if (existing.includes("status: fixed")) continue;
+  }
 
   // Combine weekly contents
   let combined = "";
@@ -226,12 +254,12 @@ for (const [month, weeks] of Object.entries(monthGroups)) {
 
   if (totalLines <= MONTHLY_THRESHOLD) {
     // Below threshold — concat
-    const frontmatter = `---\ntype: monthly\nstatus: fixed\nperiod: ${month}\nweeks: [${weeks.join(", ")}]\nsource-files: [${weeks.map(w => `memory/weekly/${w}.md`).join(", ")}]\ntopics: []\n---\n`;
+    const frontmatter = `---\ntype: monthly\nstatus: ${status}\nperiod: ${month}\nweeks: [${weeks.join(", ")}]\nsource-files: [${weeks.map(w => `memory/weekly/${w}.md`).join(", ")}]\ntopics: []\n---\n`;
     writeFileSync(monthlyPath, frontmatter + combined);
     monthlyUpdated = true;
-  } else if (!existsSync(monthlyPath)) {
+  } else if (!existsSync(monthlyPath) || status === "tentative") {
     // Above threshold — mark for agent
-    const placeholder = `---\ntype: monthly\nstatus: needs-summarization\nperiod: ${month}\nlines: ${totalLines}\n---\n\nThis monthly node exceeds ${MONTHLY_THRESHOLD} lines and needs LLM summarization.\nRun engram-compaction skill to generate the summary.\n`;
+    const placeholder = `---\ntype: monthly\nstatus: needs-summarization\nperiod: ${month}\nlines: ${totalLines}\n---\n\nThis monthly node exceeds ${MONTHLY_THRESHOLD} lines and needs LLM summarization.\nRun hipocampus-compaction skill to generate the summary.\n`;
     writeFileSync(monthlyPath, placeholder);
     monthlyUpdated = true;
   }
@@ -257,7 +285,7 @@ if (dailyUpdated || weeklyUpdated || monthlyUpdated) {
           .replace(/^## /gm, "### "); // demote headings to fit inside MEMORY.md
         const updated = memContent.replace(
           /## Compaction Root[\s\S]*?(?=\n## |$)/,
-          `## Compaction Root\n<!-- Auto-synced from memory/ROOT.md by engram compact -->\n\n${rootBody}\n`
+          `## Compaction Root\n<!-- Auto-synced from memory/ROOT.md by hipocampus compact -->\n\n${rootBody}\n`
         );
         writeFileSync(memoryMdPath, updated);
       }
@@ -268,6 +296,11 @@ if (dailyUpdated || weeklyUpdated || monthlyUpdated) {
   try {
     const { execSync: exec } = await import("node:child_process");
     exec("qmd update", { cwd: CWD, stdio: "pipe" });
+
+    // Update vector embeddings if enabled
+    if (config.search?.vector !== false) {
+      exec("qmd embed", { cwd: CWD, stdio: "pipe" });
+    }
   } catch { /* qmd may not be installed */ }
 }
 
@@ -280,7 +313,7 @@ if (weeklyUpdated) actions.push("weekly nodes updated");
 if (monthlyUpdated) actions.push("monthly nodes updated");
 
 if (actions.length > 0) {
-  console.log(`  engram compact: ${actions.join(", ")}`);
+  console.log(`  hipocampus compact: ${actions.join(", ")}`);
 } else {
-  console.log("  engram compact: nothing to do");
+  console.log("  hipocampus compact: nothing to do");
 }

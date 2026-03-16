@@ -1,151 +1,69 @@
 # Session & Checkpoint Protocol
 
-## Session Start (Mandatory, 7 Steps)
+## Session Start (Mandatory — first user message)
 
-Every new conversation MUST begin by loading context. memory/ROOT.md is auto-loaded by the platform before Step 1 — no manual read needed.
+**FIRST RESPONSE RULE:** On the very first user message of every session, run ALL steps below BEFORE responding. This takes priority over ANY user request.
 
-### Step 1: Read engram.config.json
-- Determine domain mapping: which SCRATCHPAD and WORKING files apply to this session
-- If a single domain is configured, auto-select it
-- If multiple domains are configured and the user has not specified a domain:
-  - Infer the domain from task context (e.g., TASK-QUEUE.md, the user's first message, or the task description)
-  - If the domain cannot be inferred with confidence, ask the user which domain to work in
+memory/ROOT.md is auto-loaded by the platform — no manual read needed.
+On Claude Code, SCRATCHPAD.md, WORKING.md, and TASK-QUEUE.md are auto-loaded via @import — no manual read needed.
 
-### Step 2: Read MEMORY.md
-- Long-term memory: Core (frozen) + Adaptive (dynamic) sections
-- Establishes foundational facts, rules, and lessons
+### Claude Code (1 step)
 
-### Step 3: Read USER.md
-- User profile, preferences, communication style
+SCRATCHPAD.md, WORKING.md, TASK-QUEUE.md, memory/ROOT.md are auto-loaded via @import — no manual read needed.
 
-### Step 4: Read domain-matched SCRATCHPAD
-- Active work state for the selected domain
-- Single domain: `SCRATCHPAD.md`
-- Multi-domain: load the domain-relevant file (e.g., `SCRATCHPAD-WEB.md`)
+1. **Compaction maintenance (subagent):** Dispatch a subagent to run hipocampus-compaction skill using subagents. Always run — do not check first.
 
-### Step 5: Read domain-matched WORKING
-- Current task list for the selected domain (same domain logic as Step 4)
+### OpenClaw (4 steps)
 
-### Step 6: Read TASK-QUEUE.md
-- Pending tasks from previous sessions
+MEMORY.md, USER.md, memory/ROOT.md (via Compaction Root section) are auto-loaded by the platform.
 
-### Step 7 (new): Read most recent daily compaction node + check compaction triggers
+1. Read `SCRATCHPAD.md` — current work state
+2. Read `WORKING.md` — active tasks
+3. Read `TASK-QUEUE.md` — pending items
+4. **Compaction maintenance (subagent):** Dispatch a subagent to run hipocampus-compaction skill using subagents. Always run.
 
-**Read most recent daily:**
-- Find the most recent file in `memory/daily/` (regardless of how many days ago it was)
-- Read it for prior-session context
-- Note: ROOT.md provides the high-level topic index; the most recent daily provides detailed recent-session continuity
+## End-of-Task Checkpoint (Mandatory — subagent)
 
-**Check compaction triggers:**
-- Evaluate trigger conditions for each level of the compaction tree (daily, weekly, monthly, root)
-- If any trigger condition is met, invoke the engram-compaction skill
-- Compaction runs at most 1 daily + 1 weekly + 1 monthly + 1 root per cycle
+After completing any task, **dispatch a subagent** to append a structured log to `memory/YYYY-MM-DD.md`.
 
-Note: memory/ROOT.md is already in context (auto-loaded by platform) — no separate read step is needed. The agent uses ROOT.md to judge whether any topic in the user's request is already covered by internal memory.
+The subagent only needs to do one thing: append to the daily log. This is the source of truth — everything else (SCRATCHPAD, WORKING, TASK-QUEUE, MEMORY.md) is updated lazily at next session start or naturally during work.
 
-## End-of-Task Checkpoint (Mandatory, 6 Steps)
+### Daily log format
 
-After completing any meaningful task, persist context. All 6 steps must be completed before responding that the task is done.
-
-### Step 1: Update SCRATCHPAD
-- Current findings, pending decisions, cross-task lessons
-- Move stale entries to daily log if approaching ~150 lines
-- Write to the current domain's SCRATCHPAD file
-
-### Step 2: Append to MEMORY.md
-- **APPEND ONLY** — add new entries at the end of the relevant section
-- Core facts, key decisions, user preferences, lessons learned
-- Never modify or remove Core section entries
-- If Adaptive section exceeds ~50 lines: consolidate oldest entries, move detail to `knowledge/`
-
-### Step 3: Update USER.md
-- Any new information learned about the user this session
-- Preferences, expertise, communication patterns
-- Only update sections where new information was actually learned
-
-### Step 4: Append structured log to daily raw log
-- Write to `memory/YYYY-MM-DD.md` (using the date the session started)
-- For each topic discussed, include: what the user requested, what analysis/actions you performed, specific decisions made with rationale, user feedback/reactions, concrete values and data points, files created or modified, and references to knowledge/ files
-- Use `##` headings per topic — this is the compaction tree's source material
-- Include enough detail that the daily compaction node can extract keywords, decisions, and patterns
-- These are permanent raw records — be thorough, not summarized
-
-### Step 5: Update WORKING
-- Remove completed tasks — the daily log is the permanent completion record
-- Update in-progress/blocked status for remaining tasks
-- Add newly discovered sub-tasks
-- Write to the current domain's WORKING file
-
-### Step 6: Update TASK-QUEUE.md
-- Remove completed tasks from the queue
-- Add follow-up items discovered during the task
-- Re-prioritize if new information changes priorities
-- TASK-QUEUE is a backlog only — do not keep completed items here
-
-After all file modifications, re-index search:
-```bash
-qmd update
+```markdown
+## [Topic Name]
+- request: what the user asked
+- analysis: what you researched/analyzed
+- decisions: choices made with rationale
+- outcome: what was done, files changed
+- references: knowledge/ files, external sources
 ```
 
-## Priority Ordering if Session Times Out
+The subagent has no access to the conversation — you must provide the task summary.
 
-If session termination is imminent and not all checkpoint steps can be completed, prioritize in this order:
+## Proactive Session Dump
 
-1. Daily raw log (`memory/YYYY-MM-DD.md`) — most detailed, most recoverable by compaction
-2. SCRATCHPAD — active work state for next session
-3. MEMORY.md — key facts and lessons
-4. USER.md — user information
-5. WORKING — task status
-6. TASK-QUEUE.md — backlog updates
+Do not wait for task completion. Dispatch a subagent to flush to the daily log when:
+- ~20+ messages without a checkpoint
+- Context is getting large
+- A significant decision was just completed
+- Switching between topics
 
-The rule: **if this session ends NOW, the next session must be able to continue immediately.** At minimum, the daily raw log and SCRATCHPAD must be updated.
+## Priority if Timeout Imminent
 
-## Domain Selection Logic
-
-```
-User explicitly specifies domain?
-  → Yes: use that domain
-  → No:
-      Only 1 domain configured?
-        → Yes: auto-select it
-        → No (multiple domains):
-            Can domain be inferred from task context?
-              → Yes (high confidence): auto-select and mention the choice
-              → No (uncertain): ask the user which domain to work in
-```
-
-Domain affects only SCRATCHPAD and WORKING file selection. MEMORY.md, USER.md, TASK-QUEUE.md, and the entire compaction tree are always global.
-
-## Domain Partitioning Reference
-
-When `engram.config.json` has multiple domains:
-
-```json
-{
-  "domains": {
-    "web": { "scratchpad": "SCRATCHPAD-WEB.md", "working": "WORKING-WEB.md" },
-    "backend": { "scratchpad": "SCRATCHPAD-BACKEND.md", "working": "WORKING-BACKEND.md" }
-  }
-}
-```
-
-- Load only the relevant SCRATCHPAD and WORKING files for the selected domain
-- MEMORY.md, USER.md, and TASK-QUEUE.md are always global (never split by domain)
-- This saves tokens by not loading irrelevant domain state
+If session termination is imminent and no time for subagent:
+1. Write directly to `memory/YYYY-MM-DD.md` — most critical
+2. Everything else is recoverable from the daily log at next session start
 
 ## Rules
 
-- MEMORY.md Core section: **FROZEN**. Never compact, modify, or remove.
-- MEMORY.md Adaptive section: append-only within session, compactable across sessions.
+- **OpenClaw:** MEMORY.md Core section: **FROZEN**. Never compact, modify, or remove.
 - Daily logs (`memory/YYYY-MM-DD.md`): **permanent**. Never edit after the session ends.
-- Do not skip checkpoints — lost context means the next session cannot continue.
-- Keep Layer 1 files within their size targets to avoid prompt truncation.
+- All memory writes via subagent — never pollute main session context.
 - If session ends NOW, the next session must be able to continue immediately.
 
 ## Edge Cases
 
-**Midnight-spanning session:** The raw log and daily compaction node use the date when the session started. Do not split the session record across two dates even if the session crosses midnight.
+**Midnight-spanning session:** Use the session start date for the raw log file name.
 
-**Returning after absence:** Session Start Step 7 reads the "most recent daily" — this means the latest file in `memory/daily/`, regardless of whether it is from yesterday, last week, or three months ago. ROOT.md (auto-loaded) provides the high-level topic index that covers the full absence period. If more than a few days have passed, the compaction trigger check at Step 7 will likely run to process any uncovered raw logs.
-
-**If session ends NOW:** The next session must be able to continue immediately. This rule takes priority over completeness. Write a minimal daily log entry and SCRATCHPAD update before anything else if time is critically short.
+**Returning after absence:** Read the most recent daily file regardless of age. ROOT.md covers the full absence period. Compaction maintenance at session start will process uncovered raw logs.
