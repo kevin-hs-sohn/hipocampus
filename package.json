@@ -1,6 +1,6 @@
 {
   "name": "hipocampus",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Drop-in memory harness for AI agents — 3-tier memory, compaction tree, hybrid search via qmd",
   "type": "module",
   "bin": {
