@@ -148,16 +148,31 @@ copyTemplate("WORKING.md");
 // ─── Step 4: Install skills ───
 
 const skillNames = ["hipocampus-core", "hipocampus-compaction", "hipocampus-search", "hipocampus-flush"];
-const skillsBase = join(CWD, ".claude", "skills");
+// Claude Code: .claude/skills/  |  OpenClaw: skills/
+const skillsBase = isOpenClaw ? join(CWD, "skills") : join(CWD, ".claude", "skills");
 
 for (const skill of skillNames) {
   const destDir = join(skillsBase, skill);
   const destFile = join(destDir, "SKILL.md");
   const src = join(ROOT, "skills", skill, "SKILL.md");
-  if (existsSync(src) && !existsSync(destFile)) {
-    if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
+  if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
+  // Always overwrite — ensures updates propagate on reinstall/upgrade
+  if (existsSync(src)) {
     copyFileSync(src, destFile);
     console.log(`  + skill: ${skill}`);
+  }
+}
+
+// Migration: remove skills from wrong location (.claude/skills on OpenClaw, skills/ on Claude Code)
+if (isOpenClaw) {
+  const wrongBase = join(CWD, ".claude", "skills");
+  for (const skill of skillNames) {
+    const wrongDir = join(wrongBase, skill);
+    if (existsSync(wrongDir)) {
+      const { rmSync } = await import("node:fs");
+      rmSync(wrongDir, { recursive: true });
+      console.log(`  ~ migrated skill ${skill} from .claude/skills/ to skills/`);
+    }
   }
 }
 
@@ -217,7 +232,7 @@ if (hasQmd) {
 const PROTOCOL_BLOCK_OC = `
 ## Hipocampus — Memory Protocol
 
-This project uses hipocampus 3-tier memory. Follow \`.claude/skills/hipocampus-core/SKILL.md\`.
+This project uses hipocampus 3-tier memory. Follow \`skills/hipocampus-core/SKILL.md\`.
 **All memory write operations MUST be dispatched to subagents** to keep the main session context clean.
 
 ### FIRST RESPONSE RULE — MANDATORY
@@ -229,7 +244,7 @@ Run the Session Start protocol below FIRST (ALL steps. NO SKIP.) This takes prio
 1. **DO NOT SKIP** Read \`SCRATCHPAD.md\` — current work state
 2. **DO NOT SKIP** Read \`WORKING.md\` — active tasks
 3. **DO NOT SKIP** Read \`TASK-QUEUE.md\` — pending items
-4. **DO NOT SKIP** **Compaction maintenance (subagent):** Dispatch a subagent to scan memory/daily/, memory/weekly/, memory/monthly/ for "needs-summarization" files. If found, process per hipocampus-compaction skill using subagents (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\`.
+4. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (subagent):** Dispatch a subagent to run hipocampus-compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\` + \`qmd embed\`. Always run — do not check first, the subagent handles it.
 **ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
 
 Note: MEMORY.md, USER.md, memory/ROOT.md (via Compaction Root section) are auto-loaded by the platform.
@@ -246,7 +261,7 @@ Compose the log with ## headings per topic: what was requested, analysis, decisi
 - **All memory writes via subagent** — never pollute main session with memory operations
 - MEMORY.md Core section: never modify or delete
 - memory/*.md (raw): permanent, never delete
-- Search: see \`.claude/skills/hipocampus-search/SKILL.md\`
+- Search: see \`skills/hipocampus-search/SKILL.md\`
 - If this session ends NOW, the next session must be able to continue immediately
 `;
 
