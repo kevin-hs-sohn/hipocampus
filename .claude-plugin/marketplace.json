@@ -1,0 +1,12 @@
+{
+  "name": "kevin-hs-sohn/hipocampus",
+  "description": "Hipocampus plugin marketplace",
+  "plugins": [
+    {
+      "name": "hipocampus",
+      "description": "Persistent agent memory that survives across sessions — auto-compacting 3-tier memory with hybrid search",
+      "version": "0.2.1",
+      "path": "."
+    }
+  ]
+}
