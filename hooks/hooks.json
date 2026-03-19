@@ -1,9 +1,15 @@
 {
-  "hooks": [
-    {
-      "event": "on_session_start",
-      "type": "prompt",
-      "prompt": "Hipocampus memory plugin is active. Run /hipocampus:core to see the full memory protocol.\n\nQuick start: If memory/ directory exists, dispatch a subagent to run hipocampus:compaction (Daily→Weekly→Monthly→Root chain), then `hipocampus compact` + `qmd update` + `qmd embed`.\n\nFor full setup (directories, templates, search, hooks): run `npx hipocampus init`."
-    }
-  ]
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Hipocampus memory plugin is active. Run /hipocampus:core to see the full memory protocol.\n\nQuick start: If memory/ directory exists, dispatch a subagent to run hipocampus:compaction (Daily→Weekly→Monthly→Root chain), then `hipocampus compact` + `qmd update` + `qmd embed`.\n\nFor full setup (directories, templates, search, hooks): run `npx hipocampus init`."
+          }
+        ]
+      }
+    ]
+  }
 }
