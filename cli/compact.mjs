@@ -10,7 +10,7 @@
  *   2. TRANSCRIPT_PATH env var (legacy)
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, copyFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const CWD = process.cwd();
@@ -21,9 +21,10 @@ const args = process.argv.slice(2);
 const now = new Date();
 const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-// ─── Transcript backup ───
+// ─── Transcript → raw daily log ───
 
 let transcriptPath = process.env.TRANSCRIPT_PATH;
+let transcriptSaved = false;
 
 // --stdin: read transcript_path from PreCompact hook JSON on stdin
 if (args.includes("--stdin")) {
@@ -36,10 +37,70 @@ if (args.includes("--stdin")) {
 }
 
 if (transcriptPath && existsSync(transcriptPath)) {
-  const ext = transcriptPath.endsWith(".jsonl") ? "jsonl" : "bak";
-  const backupPath = join(MEMORY, `.session-transcript-${today}.${ext}`);
   mkdirSync(MEMORY, { recursive: true });
-  copyFileSync(transcriptPath, backupPath);
+
+  // Backup raw transcript
+  const ext = transcriptPath.endsWith(".jsonl") ? "jsonl" : "bak";
+  copyFileSync(transcriptPath, join(MEMORY, `.session-transcript-${today}.${ext}`));
+
+  // Extract conversation content → memory/YYYY-MM-DD.md
+  try {
+    const rawLogPath = join(MEMORY, `${today}.md`);
+    const extracted = extractTranscript(transcriptPath);
+    if (extracted) {
+      const timestamp = now.toISOString().slice(11, 19);
+      const entry = `\n## Session — ${today} ${timestamp}\n\n${extracted}\n`;
+      if (existsSync(rawLogPath)) {
+        appendFileSync(rawLogPath, entry);
+      } else {
+        writeFileSync(rawLogPath, `# ${today}\n${entry}`);
+      }
+      transcriptSaved = true;
+    }
+  } catch { /* transcript parsing failed — continue with compaction */ }
+}
+
+// ─── Helper: extract text from JSONL transcript ───
+
+function extractTranscript(filePath) {
+  const content = readFileSync(filePath, "utf8").trim();
+  if (!content) return "";
+
+  const lines = content.split("\n").filter(Boolean);
+  const parts = [];
+
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line);
+      if (entry.type === "user") {
+        const text = extractMessageText(entry.message);
+        if (text) parts.push(`**User:** ${text}`);
+      } else if (entry.type === "assistant") {
+        const text = extractMessageText(entry.message);
+        if (text) parts.push(`**Assistant:** ${text}`);
+      }
+    } catch { /* skip malformed lines */ }
+  }
+
+  return parts.join("\n\n");
+}
+
+function extractMessageText(message) {
+  if (!message) return "";
+  const { content } = message;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  const texts = [];
+  for (const block of content) {
+    if (block.type === "text" && block.text) {
+      texts.push(block.text);
+    } else if (block.type === "tool_use") {
+      texts.push(`[tool: ${block.name}]`);
+    }
+    // skip thinking blocks
+  }
+  return texts.join("\n");
 }
 
 // ─── Load config ───
@@ -307,7 +368,7 @@ if (dailyUpdated || weeklyUpdated || monthlyUpdated) {
 // ─── Summary ───
 
 const actions = [];
-if (transcriptPath) actions.push("transcript backed up");
+if (transcriptSaved) actions.push("daily log updated from transcript");
 if (dailyUpdated) actions.push("daily nodes updated");
 if (weeklyUpdated) actions.push("weekly nodes updated");
 if (monthlyUpdated) actions.push("monthly nodes updated");

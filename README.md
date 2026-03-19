@@ -4,7 +4,18 @@ Drop-in memory harness for AI agents. Zero infrastructure — just files.
 
 3-tier memory architecture with a 5-level compaction tree, auto-loaded ROOT.md topic index, and optional hybrid search via [qmd](https://github.com/tobi/qmd). One command to set up, works immediately with [Claude Code](https://claude.ai/code) and [OpenClaw](https://github.com/openclaw) bots.
 
-## Quick Start
+## Install
+
+### As a Claude Code Plugin
+
+```bash
+/plugin marketplace add kevin-hs-sohn/hipocampus
+/plugin install hipocampus@kevin-hs-sohn/hipocampus
+```
+
+Then run `npx hipocampus init` for full setup (directories, templates, search, hooks).
+
+### Standalone (npm)
 
 ```bash
 npx hipocampus init

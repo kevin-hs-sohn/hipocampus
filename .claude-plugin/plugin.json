@@ -1,10 +1,23 @@
 {
   "name": "hipocampus",
-  "description": "3-tier agent memory with 5-level compaction tree and hybrid search via qmd",
-  "version": "0.2.0",
+  "description": "Persistent agent memory that survives across sessions — auto-compacting 3-tier memory with hybrid search. Your agent remembers what it learned, decided, and built.",
+  "version": "0.2.1",
+  "keywords": [
+    "memory",
+    "persistent-memory",
+    "agent-memory",
+    "context-management",
+    "compaction-tree",
+    "session-history",
+    "knowledge-base",
+    "search",
+    "rag"
+  ],
   "author": {
     "name": "Kevin Sohn",
     "url": "https://github.com/kevin-hs-sohn"
   },
+  "license": "MIT",
+  "homepage": "https://github.com/kevin-hs-sohn/hipocampus#readme",
   "repository": "https://github.com/kevin-hs-sohn/hipocampus"
 }
