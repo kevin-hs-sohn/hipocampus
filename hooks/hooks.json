@@ -11,6 +11,30 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx hipocampus compact --stdin",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx hipocampus compact",
+            "timeout": 30000
+          }
+        ]
+      }
     ]
   }
 }
