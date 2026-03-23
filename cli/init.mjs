@@ -25,7 +25,7 @@ if (!command || command === "--help" || command === "-h") {
   Options:
     --no-vector        Disable vector search (saves ~2GB disk, no embedding models)
     --no-search        Skip qmd installation and search setup (compaction tree still works)
-    --platform <name>  Override platform detection (claude-code or openclaw)
+    --platform <name>  Override platform detection (claude-code, openclaw, or opencode)
     --help, -h         Show this help
 `);
   process.exit(0);
@@ -47,8 +47,8 @@ const noVector = args.includes("--no-vector");
 const noSearch = args.includes("--no-search");
 const platformIdx = args.indexOf("--platform");
 const platformOverride = platformIdx !== -1 ? args[platformIdx + 1] : null;
-if (platformOverride && !["claude-code", "openclaw"].includes(platformOverride)) {
-  console.error(`  ! Unknown platform: ${platformOverride}. Use "claude-code" or "openclaw".`);
+if (platformOverride && !["claude-code", "openclaw", "opencode"].includes(platformOverride)) {
+  console.error(`  ! Unknown platform: ${platformOverride}. Use "claude-code", "openclaw", or "opencode".`);
   process.exit(1);
 }
 
@@ -92,11 +92,18 @@ for (const dir of dirs) {
 const agentsMd = join(CWD, "AGENTS.md");
 const claudeMd = join(CWD, "CLAUDE.md");
 const openclawJson = join(CWD, "openclaw.json");
+const opencodeJson = join(CWD, "opencode.json");
+const opencodeDir = join(CWD, ".opencode");
 
-const isOpenClaw = platformOverride
+const isOpenCode = platformOverride
+  ? platformOverride === "opencode"
+  : existsSync(opencodeJson) || existsSync(opencodeDir);
+
+const isOpenClaw = !isOpenCode && (platformOverride
   ? platformOverride === "openclaw"
-  : existsSync(agentsMd);
-const platform = isOpenClaw ? "openclaw" : "claude-code";
+  : existsSync(agentsMd));
+
+const platform = isOpenCode ? "opencode" : isOpenClaw ? "openclaw" : "claude-code";
 
 console.log(`  ~ platform: ${platform}`);
 
@@ -114,6 +121,12 @@ if (isOpenClaw) {
   copyTemplate("MEMORY.md");
   copyTemplate("USER.md");
   copyTemplate("HEARTBEAT.md");
+}
+
+if (isOpenCode) {
+  copyTemplate("MEMORY.md");
+  copyTemplate("USER.md");
+  // No HEARTBEAT.md — OpenCode uses plugin events for compaction
 }
 copyTemplate("TASK-QUEUE.md");
 
@@ -149,15 +162,21 @@ copyTemplate("WORKING.md");
 
 // Plugin namespace is canonical (hipocampus:core); init copies transform to standalone (hipocampus-core).
 // Invariant: frontmatter `name:` fields use hipocampus-xxx (not hipocampus:xxx), so replaceAll is safe.
-const coreSkillSrc = isOpenClaw
-  ? { dir: join("platforms", "openclaw", "core"), name: "core" }
-  : { dir: join("skills", "core"), name: "core" };
+const coreSkillSrc = isOpenCode
+  ? { dir: join("platforms", "opencode", "core"), name: "core" }
+  : isOpenClaw
+    ? { dir: join("platforms", "openclaw", "core"), name: "core" }
+    : { dir: join("skills", "core"), name: "core" };
 const sharedSkillNames = ["compaction", "search", "flush"];
 const allSkills = [coreSkillSrc, ...sharedSkillNames.map(s => ({ dir: join("skills", s), name: s }))];
 const allSkillDests = ["hipocampus-core", ...sharedSkillNames.map(s => `hipocampus-${s}`)];
 
-// Claude Code: .claude/skills/  |  OpenClaw: skills/
-const skillsBase = isOpenClaw ? join(CWD, "skills") : join(CWD, ".claude", "skills");
+// OpenCode: .opencode/skills/  |  OpenClaw: skills/  |  Claude Code: .claude/skills/
+const skillsBase = isOpenCode
+  ? join(CWD, ".opencode", "skills")
+  : isOpenClaw
+    ? join(CWD, "skills")
+    : join(CWD, ".claude", "skills");
 
 for (let i = 0; i < allSkills.length; i++) {
   const skill = allSkills[i];
@@ -184,6 +203,20 @@ if (isOpenClaw) {
       const { rmSync } = await import("node:fs");
       rmSync(wrongDir, { recursive: true });
       console.log(`  ~ migrated skill ${skill} from .claude/skills/ to skills/`);
+    }
+  }
+}
+
+// Migration: remove skills from wrong location (skills/ or .claude/skills/ on OpenCode)
+if (isOpenCode) {
+  for (const wrongBase of [join(CWD, "skills"), join(CWD, ".claude", "skills")]) {
+    for (const skill of allSkillDests) {
+      const wrongDir = join(wrongBase, skill);
+      if (existsSync(wrongDir)) {
+        const { rmSync } = await import("node:fs");
+        rmSync(wrongDir, { recursive: true });
+        console.log(`  ~ migrated skill ${skill} to .opencode/skills/`);
+      }
     }
   }
 }
@@ -346,6 +379,51 @@ Compose the log with ## headings per topic: what was requested, analysis, decisi
 <!-- hipocampus:protocol:end -->
 `;
 
+const PROTOCOL_BLOCK_OPENCODE = `<!-- hipocampus:protocol:start -->
+## Hipocampus — Memory Protocol
+
+This project uses hipocampus 3-tier memory. Follow \`.opencode/skills/hipocampus-core/SKILL.md\`.
+**All memory write operations MUST be dispatched to subagents** to keep the main session context clean.
+
+### FIRST RESPONSE RULE — MANDATORY
+**On the very first user message of every session**, before doing ANYTHING else:
+Run the Session Start protocol below FIRST (ALL steps. NO SKIP.) This takes priority over ANY user request — even if the user asks you to do something specific. Complete ALL steps below, ONLY THEN respond to the user.
+
+### Session Start (run on first user message, every step required.)
+**Before starting the steps below:** Read \`MEMORY.md\` and \`USER.md\` first. MEMORY.md contains the Compaction Root section (memory/ROOT.md content). These are NOT auto-loaded on OpenCode — you must read them manually.
+**ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
+1. **DO NOT SKIP** Read \`SCRATCHPAD.md\` — current work state
+2. **DO NOT SKIP** Read \`WORKING.md\` — active tasks
+3. **DO NOT SKIP** Read \`TASK-QUEUE.md\` — pending items
+4. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (cooldown-gated):**
+   Read \`memory/.compaction-state.json\` and \`hipocampus.config.json\` (\`compaction.cooldownHours\`, default 3).
+   - **Within cooldown:** Skip compaction subagent — no dispatch needed.
+   - **Cooldown expired, file missing, or \`cooldownHours\` is 0:** Write \`memory/.compaction-state.json\` with \`{ "lastCompactionRun": "<current ISO timestamp>" }\`, then dispatch a subagent to run hipocampus-compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\` + \`qmd embed\`.
+
+   State file is written immediately on dispatch (fire-and-forget), not after subagent completion. The cooldown tracks "a compaction was initiated," not "a compaction succeeded."
+
+   **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when cooldown is active.**
+**ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
+
+Note: The hipocampus plugin (.opencode/plugins/hipocampus.js) handles event-driven mechanical compaction — no HEARTBEAT.md needed.
+
+### End-of-Task Checkpoint (mandatory — subagent)
+After completing any task, **dispatch a subagent** to append a structured log to \`memory/YYYY-MM-DD.md\`.
+Compose the log with ## headings per topic: what was requested, analysis, decisions with rationale, outcomes, files changed.
+**The subagent only needs to do one thing: append to the daily log.** Everything else (SCRATCHPAD, WORKING, TASK-QUEUE, MEMORY.md) is updated lazily at next session start or by the agent naturally during work.
+**You must provide the task summary to the subagent** — it has no access to the conversation.
+
+### Rules
+- **Never skip Session Start** — every session begins with it, no exceptions
+- **Never skip checkpoints** — every task completion MUST append to daily log via subagent
+- **All memory writes via subagent** — never pollute main session with memory operations
+- MEMORY.md Core section: never modify or delete
+- memory/*.md (raw): permanent, never delete
+- Search: see \`.opencode/skills/hipocampus-search/SKILL.md\`
+- If this session ends NOW, the next session must be able to continue immediately
+<!-- hipocampus:protocol:end -->
+`;
+
 const MARKER_START = "<!-- hipocampus:protocol:start -->";
 const MARKER_END = "<!-- hipocampus:protocol:end -->";
 const LEGACY_PROTOCOL_RE = /## Hipocampus — Memory Protocol[\s\S]*?(?=\n## (?!#)|$)/;
@@ -365,19 +443,7 @@ const replaceOrPrependProtocol = (content, protocolBlock) => {
   return protocolBlock.trimStart() + "\n" + content;
 };
 
-if (isOpenClaw) {
-  // ── OpenClaw path ──
-  if (existsSync(agentsMd)) {
-    let content = readFileSync(agentsMd, "utf8");
-    content = replaceOrPrependProtocol(content, PROTOCOL_BLOCK_OC);
-    writeFileSync(agentsMd, content);
-    console.log("  + hipocampus protocol updated in AGENTS.md");
-  }
-
-  // OpenClaw bootstraps a fixed set of files (AGENTS.md, MEMORY.md, etc.)
-  // ROOT.md can't be added to the bootstrap list, so we embed it as a section in MEMORY.md.
-  // The agent reads MEMORY.md at session start (it's always bootstrapped), and the
-  // Compaction Root section gives it the same awareness as a standalone ROOT.md.
+const appendCompactionRoot = () => {
   const memoryMd = join(CWD, "MEMORY.md");
   if (existsSync(memoryMd)) {
     const memContent = readFileSync(memoryMd, "utf8");
@@ -399,6 +465,31 @@ if (isOpenClaw) {
       console.log("  + added Compaction Root section to MEMORY.md");
     }
   }
+};
+
+if (isOpenCode) {
+  // ── OpenCode path ──
+  if (existsSync(agentsMd)) {
+    let content = readFileSync(agentsMd, "utf8");
+    content = replaceOrPrependProtocol(content, PROTOCOL_BLOCK_OPENCODE);
+    writeFileSync(agentsMd, content);
+    console.log("  + hipocampus protocol updated in AGENTS.md");
+  } else {
+    writeFileSync(agentsMd, PROTOCOL_BLOCK_OPENCODE.trimStart());
+    console.log("  + created AGENTS.md with hipocampus protocol");
+  }
+
+  appendCompactionRoot();
+} else if (isOpenClaw) {
+  // ── OpenClaw path ──
+  if (existsSync(agentsMd)) {
+    let content = readFileSync(agentsMd, "utf8");
+    content = replaceOrPrependProtocol(content, PROTOCOL_BLOCK_OC);
+    writeFileSync(agentsMd, content);
+    console.log("  + hipocampus protocol updated in AGENTS.md");
+  }
+
+  appendCompactionRoot();
 } else {
   // ── Claude Code path ──
   if (existsSync(claudeMd)) {
@@ -455,7 +546,39 @@ if (existsSync(gitignorePath)) {
 const hipocampusBin = join(ROOT, "cli", "init.mjs");
 const compactCmd = `node "${hipocampusBin}" compact --stdin`;
 
-if (!isOpenClaw) {
+if (isOpenCode) {
+  // OpenCode: install plugin + register in opencode.json
+  const pluginDir = join(CWD, ".opencode", "plugins");
+  const pluginDest = join(pluginDir, "hipocampus.js");
+  const pluginSrc = join(ROOT, "platforms", "opencode", "plugin", "hipocampus.js");
+
+  if (!existsSync(pluginDir)) mkdirSync(pluginDir, { recursive: true });
+  copyFileSync(pluginSrc, pluginDest);
+  console.log("  + .opencode/plugins/hipocampus.js");
+
+  // Register plugin in opencode.json (merge if exists, create if not)
+  const pluginEntry = ".opencode/plugins/hipocampus.js";
+  if (existsSync(opencodeJson)) {
+    try {
+      const oc = JSON.parse(readFileSync(opencodeJson, "utf8"));
+      oc.plugin = oc.plugin || [];
+      if (!oc.plugin.includes(pluginEntry)) {
+        oc.plugin.push(pluginEntry);
+        writeFileSync(opencodeJson, JSON.stringify(oc, null, 2) + "\n");
+        console.log("  + registered hipocampus plugin in opencode.json");
+      }
+    } catch {
+      console.log("  ! opencode.json not parseable — skipping plugin registration");
+    }
+  } else {
+    const oc = {
+      "$schema": "https://opencode.ai/config.json",
+      plugin: [pluginEntry],
+    };
+    writeFileSync(opencodeJson, JSON.stringify(oc, null, 2) + "\n");
+    console.log("  + created opencode.json with hipocampus plugin");
+  }
+} else if (!isOpenClaw) {
   // Claude Code: register PreCompact command hook in .claude/settings.json
   const settingsDir = join(CWD, ".claude");
   const settingsPath = join(settingsDir, "settings.json");
@@ -527,9 +650,28 @@ if (!isOpenClaw) {
   console.log("  + HEARTBEAT.md includes hipocampus compaction maintenance tasks");
 }
 
+// Add OpenCode plugin to gitignore (generated file, not committed)
+if (isOpenCode) {
+  const gi = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
+  if (!gi.includes(".opencode/plugins/hipocampus.js")) {
+    appendFileSync(gitignorePath, "\n# hipocampus plugin (generated)\n.opencode/plugins/hipocampus.js\n");
+    console.log("  + added plugin to .gitignore");
+  }
+}
+
 // ─── Done ───
 
-if (isOpenClaw) {
+if (isOpenCode) {
+  console.log(`
+  done! Your agent now has structured memory.
+
+  Next steps:
+    1. Fill in USER.md with your profile
+    2. Start opencode — the agent will follow the memory protocol
+    3. Memory builds up automatically over sessions
+    4. The hipocampus plugin handles compaction on session.idle events
+`);
+} else if (isOpenClaw) {
   console.log(`
   done! Your agent now has structured memory.
 
