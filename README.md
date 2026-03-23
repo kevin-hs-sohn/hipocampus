@@ -206,7 +206,7 @@ Below threshold, source files are copied/concatenated verbatim — no informatio
 
 Hipocampus has four execution mechanisms — all set up automatically by `npx hipocampus init`. Nothing requires manual intervention after install.
 
-**Key principle: all memory write operations are dispatched to subagents.** This keeps the main session context clean — memory management never pollutes the conversation the user is having with the agent.
+**Key principle: memory writes are dispatched to subagents where possible.** On Claude Code and OpenCode, all memory writes go through subagents to keep the main session clean. On OpenClaw, hot files (WORKING.md, SCRATCHPAD.md) are written directly by the main agent at Task Start and Task End — they're already in context and light enough (~250 lines total) that subagent overhead isn't justified. Layer 2+ files (daily logs, knowledge/) still go through subagents on all platforms.
 
 ### 1. Session Protocol (agent-driven)
 
@@ -221,30 +221,49 @@ The hipocampus-core skill instructs the agent what to do at session start and af
 4. Claude Code legacy: Read MEMORY.md if it exists (migration support)
 5. Read SCRATCHPAD.md — current work state
 6. Read WORKING.md — active tasks
-7. Read TASK-QUEUE.md — pending items
-8. Read most recent memory/daily/*.md (prior session context)
-9. Compaction maintenance (subagent): dispatch subagent to scan for needs-summarization
-   files → LLM summaries → hipocampus compact → qmd reindex
+7. OpenClaw: Stale task recovery — if WORKING.md has in-progress tasks from a prior
+   session, assess completion and update to done/failed/abandoned
+8. Read TASK-QUEUE.md — pending items
+9. Read most recent memory/daily/*.md (prior session context)
+10. Compaction maintenance (subagent): dispatch subagent to scan for needs-summarization
+    files → LLM summaries → hipocampus compact → qmd reindex
 ```
 
 ROOT.md is auto-loaded by the platform — no manual read needed.
 
-**End-of-Task Checkpoint (via subagent):**
+**End-of-Task Checkpoint:**
 
-After completing any task, the agent composes a task summary and dispatches a subagent to:
+The checkpoint process differs by platform:
+
+**OpenClaw — Task Lifecycle (main agent + subagent):**
+
+Every logical work unit follows a mandatory Task Start → Task End cycle:
 
 ```
-1. Update SCRATCHPAD — findings, decisions, lessons
-2. OpenClaw: Append to MEMORY.md — APPEND ONLY, never modify Core section
-   Claude Code: Save facts/lessons to platform memory (auto memory handles this natively)
-3. OpenClaw only: Update USER.md — newly learned user info
-4. Append structured log to memory/YYYY-MM-DD.md (see below)
-5. Update WORKING — remove completed tasks
-6. Update TASK-QUEUE — remove completed tasks, add follow-ups
-7. Run qmd update
+Task Start (main agent writes directly):
+  1. Update WORKING.md — add in-progress entry with goal
+  2. Update SCRATCHPAD.md — set current focus
+
+Task End (main agent first, then subagent — order matters):
+  1. Update WORKING.md — status → done/failed/abandoned + outcome
+  2. Update SCRATCHPAD.md — remove completed items, update focus
+  3. Dispatch subagent → append structured log to memory/YYYY-MM-DD.md
 ```
 
-The agent provides the task summary to the subagent since the subagent has no access to the conversation. Completed tasks are removed from WORKING and TASK-QUEUE — the daily log is the permanent completion record.
+Hot files first, daily log second. This guarantees session-to-session continuity even if the subagent dispatch fails or the session ends abruptly. Quick factual questions that require no file changes skip the lifecycle entirely.
+
+**Claude Code — via subagent:**
+
+After completing any task, the agent dispatches a subagent to:
+
+```
+1. Append structured log to memory/YYYY-MM-DD.md
+2. Update SCRATCHPAD — findings, decisions, lessons
+3. Update WORKING — remove completed tasks
+4. Update TASK-QUEUE — remove completed tasks, add follow-ups
+```
+
+On Claude Code, `@import` keeps hot files visible every turn, so the agent naturally updates them without explicit enforcement. The subagent handles the daily log write to protect context.
 
 ### 2. Structured Daily Log (the compaction tree's source material)
 
@@ -342,8 +361,11 @@ OpenClaw bootstraps a fixed set of files (AGENTS.md, MEMORY.md, etc.) — ROOT.m
 | Mechanism | What it does | When | Subagent | Cost |
 |-----------|-------------|------|----------|------|
 | Session Start (reads) | Load SCRATCHPAD, WORKING, TASK-QUEUE, recent daily | First user message | No (main session) | Read only |
+| Stale task recovery (OC) | Resolve leftover in-progress tasks from prior session | First user message | No (main session) | Read + write |
 | Session Start (compaction) | Process needs-summarization files | First user message | **Yes** | LLM (if files exist) |
-| End-of-Task Checkpoint | Update all memory files + daily log | Every task completion | **Yes** | LLM |
+| Task Start (OC) | Update WORKING.md + SCRATCHPAD.md | Every new logical task | No (main agent) | Write only |
+| Task End (OC) | Update hot files + dispatch daily log | Every task completion | **Partial** (daily log only) | LLM |
+| End-of-Task Checkpoint (CC) | Update all memory files + daily log | Every task completion | **Yes** | LLM |
 | Proactive flush | Dump context to daily log | Every ~20 messages | **Yes** | LLM |
 | Pre-compaction hook | Mechanical compaction + qmd reindex | Before context compression | No (command hook) | Zero LLM |
 | TaskCompleted hook (CC) | Mechanical compaction | After each task | No (command hook) | Zero LLM |
@@ -417,25 +439,41 @@ qmd is optional. Use `--no-search` during init to skip it entirely. Without qmd,
 
 Hipocampus installs four agent skills into `.claude/skills/`:
 
-- **hipocampus-core** — Session start protocol + end-of-task checkpoint, all memory writes via subagent. Platform-conditional (Claude Code uses platform auto memory; OpenClaw uses MEMORY.md/USER.md). Defines the structured daily log format, proactive flush rules, and compaction trigger check. The core discipline that makes memory work.
+- **hipocampus-core** — Session start protocol + end-of-task checkpoint. Platform-conditional: Claude Code uses platform auto memory with subagent writes; OpenClaw uses MEMORY.md/USER.md with a mandatory Task Lifecycle (Task Start/End) that enforces hot file updates directly from the main agent. Defines the structured daily log format, proactive flush rules, compaction trigger check, and stale task recovery. The core discipline that makes memory work.
 - **hipocampus-compaction** — Builds the 5-level compaction tree (daily/weekly/monthly/root). Smart thresholds: copy/concat below threshold, LLM keyword-dense summary above threshold. Fixed/tentative lifecycle management. Handles `needs-summarization` nodes left by mechanical compaction.
 - **hipocampus-search** — Search guide: ROOT.md Topics Index for "do I know about this?" judgment, hybrid vs BM25 selection, query construction rules, compaction tree fallback traversal, and guidance for working without qmd.
 - **hipocampus-flush** (`/hipocampus-flush`) — Manual memory flush via subagent: dump current session context to daily raw log + mechanical compact. Use when you want to persist session state on demand. For full LLM compaction afterwards, run hipocampus-compaction.
 
 ## Task Lifecycle
 
+### OpenClaw (explicit enforcement)
+
+OpenClaw lacks Claude Code's `@import` mechanism that keeps hot files visible every turn. Without explicit enforcement, hot files go stale — the agent reads them once at session start and forgets to update them. The Task Lifecycle protocol solves this:
+
 ```
 TASK-QUEUE (backlog)          → pick up task
   ↓
-WORKING (in progress)         → actively working
+Task Start (main agent):      → MANDATORY for every logical work unit
+  ├── WORKING.md              ← add in-progress entry with goal
+  └── SCRATCHPAD.md           ← set current focus
   ↓
-Task completed                → subagent checkpoint:
-  ├── daily log (permanent)   ← detailed structured record
-  ├── WORKING                 ← task removed
-  ├── TASK-QUEUE              ← task removed, follow-ups added
-  ├── SCRATCHPAD              ← lessons, decisions updated
-  └── MEMORY.md               ← key facts appended (OpenClaw) / platform memory (Claude Code)
+Actively working              → follow-up messages on same task skip Task Start
+  ↓
+Task End (main agent first, then subagent — order matters):
+  1. WORKING.md               ← status → done/failed/abandoned + outcome
+  2. SCRATCHPAD.md             ← remove completed items, update focus
+  3. Subagent → daily log     ← detailed structured record (permanent)
 ```
+
+**What counts as a task?** A logical work unit — bug fix, feature, investigation. Quick factual questions (no file changes) skip the lifecycle.
+
+**Stale task recovery:** At session start, if WORKING.md has in-progress tasks from a prior session, the agent assesses completion and updates status before proceeding.
+
+### Claude Code (natural enforcement)
+
+Claude Code's `@import` forces the agent to see SCRATCHPAD.md, WORKING.md, and TASK-QUEUE.md every turn, creating a natural feedback loop. Hot files stay current without explicit lifecycle enforcement. The daily log is written via subagent after task completion.
+
+### Both platforms
 
 TASK-QUEUE is a backlog only — completed tasks are removed, not archived. The daily log (`memory/YYYY-MM-DD.md`) is the permanent record of all completed work. This keeps TASK-QUEUE small and focused on what's ahead.
 
