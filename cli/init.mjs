@@ -300,18 +300,19 @@ const PROTOCOL_BLOCK_OC = `<!-- hipocampus:protocol:start -->
 ## Hipocampus — Memory Protocol
 
 This project uses hipocampus 3-tier memory. Follow \`skills/hipocampus-core/SKILL.md\`.
-**All memory write operations MUST be dispatched to subagents** to keep the main session context clean.
+**Hot files (WORKING.md, SCRATCHPAD.md) are written directly by the main agent. Layer 2+ files (daily logs, knowledge/) are written via subagent.**
 
 ### FIRST RESPONSE RULE — MANDATORY
 **On the very first user message of every session**, before doing ANYTHING else:
 Run the Session Start protocol below FIRST (ALL steps. NO SKIP.) This takes priority over ANY user request — even if the user asks you to do something specific. Complete ALL steps below, ONLY THEN respond to the user.
 
 ### Session Start (run on first user message, every step required.)
-**ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
+**ALL 5 procedures must be completed before responding to the user NO MATTER WHAT**
 1. **DO NOT SKIP** Read \`SCRATCHPAD.md\` — current work state
 2. **DO NOT SKIP** Read \`WORKING.md\` — active tasks
-3. **DO NOT SKIP** Read \`TASK-QUEUE.md\` — pending items
-4. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (cooldown-gated):**
+3. **DO NOT SKIP** **Stale task recovery:** If WORKING.md contains tasks with \`status: in-progress\` from a previous session, assess whether they completed (check daily log, file state, git history). Update each to \`done\`, \`failed\`, or \`abandoned\` with a one-line outcome. Update SCRATCHPAD.md to match.
+4. **DO NOT SKIP** Read \`TASK-QUEUE.md\` — pending items
+5. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (cooldown-gated):**
    Read \`memory/.compaction-state.json\` and \`hipocampus.config.json\` (\`compaction.cooldownHours\`, default 3).
    - **Within cooldown:** Skip compaction subagent — no dispatch needed.
    - **Cooldown expired, file missing, or \`cooldownHours\` is 0:** Write \`memory/.compaction-state.json\` with \`{ "lastCompactionRun": "<current ISO timestamp>" }\`, then dispatch a subagent to run hipocampus-compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\` + \`qmd embed\`.
@@ -319,20 +320,26 @@ Run the Session Start protocol below FIRST (ALL steps. NO SKIP.) This takes prio
    State file is written immediately on dispatch (fire-and-forget), not after subagent completion. The cooldown tracks "a compaction was initiated," not "a compaction succeeded."
 
    **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when cooldown is active.**
-**ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
+**ALL 5 procedures must be completed before responding to the user NO MATTER WHAT**
 
 Note: MEMORY.md, USER.md, memory/ROOT.md (via Compaction Root section) are auto-loaded by the platform.
 
-### End-of-Task Checkpoint (mandatory — subagent)
-After completing any task, **dispatch a subagent** to append a structured log to \`memory/YYYY-MM-DD.md\`.
+### Task Lifecycle (mandatory)
+Every logical work unit follows Task Start → Task End. See \`skills/hipocampus-core/SKILL.md\` for full protocol.
+**Task Start:** Update WORKING.md (add in-progress entry) + SCRATCHPAD.md (set current focus) — main agent writes directly.
+**Task End (in order):** Update WORKING.md (done/failed/abandoned) → Update SCRATCHPAD.md (clear/replace) → Dispatch subagent for daily log.
+Quick factual questions that require no file changes are not tasks — skip the lifecycle.
+
+### End-of-Task Checkpoint (mandatory)
+This is step 3 of Task End — run AFTER updating hot files (WORKING.md, SCRATCHPAD.md).
+**Dispatch a subagent** to append a structured log to \`memory/YYYY-MM-DD.md\`.
 Compose the log with ## headings per topic: what was requested, analysis, decisions with rationale, outcomes, files changed.
-**The subagent only needs to do one thing: append to the daily log.** Everything else (SCRATCHPAD, WORKING, TASK-QUEUE, MEMORY.md) is updated lazily at next session start or by the agent naturally during work.
 **You must provide the task summary to the subagent** — it has no access to the conversation.
 
 ### Rules
 - **Never skip Session Start** — every session begins with it, no exceptions
-- **Never skip checkpoints** — every task completion MUST append to daily log via subagent
-- **All memory writes via subagent** — never pollute main session with memory operations
+- **Never skip Task Lifecycle** — every logical work unit MUST have Task Start and Task End
+- **Write authority:** Hot files (WORKING.md, SCRATCHPAD.md, TASK-QUEUE.md, MEMORY.md Adaptive) written directly by main agent. Layer 2+ files (daily logs, knowledge/) written via subagent.
 - MEMORY.md Core section: never modify or delete
 - memory/*.md (raw): permanent, never delete
 - Search: see \`skills/hipocampus-search/SKILL.md\`
