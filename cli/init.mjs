@@ -120,7 +120,12 @@ function copyTemplate(filename, destName) {
 if (isOpenClaw) {
   copyTemplate("MEMORY.md");
   copyTemplate("USER.md");
-  copyTemplate("HEARTBEAT.md");
+  // HEARTBEAT.md uses marker-based replacement (see Step 7b below)
+  const heartbeatDest = join(CWD, "HEARTBEAT.md");
+  if (!existsSync(heartbeatDest)) {
+    copyFileSync(join(ROOT, "templates", "HEARTBEAT.md"), heartbeatDest);
+    console.log("  + HEARTBEAT.md");
+  }
 }
 
 if (isOpenCode) {
@@ -497,6 +502,48 @@ if (isOpenCode) {
   }
 
   appendCompactionRoot();
+
+  // ── HEARTBEAT.md marker-based update ──
+  const heartbeatDest = join(CWD, "HEARTBEAT.md");
+  if (existsSync(heartbeatDest)) {
+    const HB_MARKER_START = "<!-- hipocampus:heartbeat:start -->";
+    const HB_MARKER_END = "<!-- hipocampus:heartbeat:end -->";
+    const templateContent = readFileSync(join(ROOT, "templates", "HEARTBEAT.md"), "utf8");
+    // Extract the hipocampus section from template (between markers)
+    const markerRe = new RegExp(
+      HB_MARKER_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      + "[\\s\\S]*?"
+      + HB_MARKER_END.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    );
+    const templateMatch = templateContent.match(markerRe);
+    if (templateMatch) {
+      let hbContent = readFileSync(heartbeatDest, "utf8");
+      if (hbContent.includes(HB_MARKER_START)) {
+        // Replace existing marked section
+        hbContent = hbContent.replace(markerRe, templateMatch[0]);
+        writeFileSync(heartbeatDest, hbContent);
+        console.log("  + HEARTBEAT.md hipocampus section updated");
+      } else if (hbContent.includes("Hipocampus Compaction Maintenance")) {
+        // Legacy: replace old section (from "## 1. Hipocampus" to next "## " or "HEARTBEAT_OK")
+        const legacyRe = /## 1\. Hipocampus Compaction Maintenance[\s\S]*?(?=\n## (?!#)|HEARTBEAT_OK)/;
+        if (legacyRe.test(hbContent)) {
+          hbContent = hbContent.replace(legacyRe, templateMatch[0] + "\n\n");
+          writeFileSync(heartbeatDest, hbContent);
+          console.log("  + HEARTBEAT.md hipocampus section updated (legacy migration)");
+        }
+      } else {
+        // No hipocampus section at all — inject after the header
+        const headerEnd = hbContent.indexOf("\n\n");
+        if (headerEnd !== -1) {
+          hbContent = hbContent.slice(0, headerEnd + 2) + templateMatch[0] + "\n\n" + hbContent.slice(headerEnd + 2);
+        } else {
+          hbContent = hbContent + "\n\n" + templateMatch[0] + "\n";
+        }
+        writeFileSync(heartbeatDest, hbContent);
+        console.log("  + HEARTBEAT.md hipocampus section injected");
+      }
+    }
+  }
 } else {
   // ── Claude Code path ──
   if (existsSync(claudeMd)) {
