@@ -104,6 +104,34 @@ AI agents forget everything between sessions. Existing solutions each solve part
 
 **No single mechanism is sufficient.** Working state handles the present. Long-term memory handles key facts. RAG handles retrieval when you know what to search for. The compaction tree handles awareness and browsing. Hipocampus combines all four.
 
+### The compaction tree's killer feature: surfacing what you didn't know to search for
+
+RAG is powerful — but it requires a query. The agent has to already suspect that relevant context exists to form a search. The compaction tree flips this: ROOT.md puts the full topic index in the agent's context at zero extra cost, so the agent **notices** relevant past context even when the user's request doesn't hint at it.
+
+**Example 1 — Cross-referencing past decisions:**
+
+> User: "Refactor this API endpoint."
+
+The agent reads ROOT.md at session start (as it always does) and sees in the Topics Index: `api-rate-limiting: discussed throttling strategy, decided on token bucket → knowledge/api-design.md (2026-03-10)`. It connects this to the refactoring task and incorporates the prior decision — even though the user said nothing about rate limiting.
+
+A RAG-based system would never search for "rate limiting" here. The user asked for a refactor, not a rate limiting review. The connection only exists because the agent can **see** its own knowledge map.
+
+**Example 2 — Resuming without a query:**
+
+> User: "Continue from last time."
+
+ROOT.md's Active Context section immediately shows what was in progress. No search needed — the answer is already loaded.
+
+A RAG-based system can't even form a query. "Last time" has no keywords to search for, no embeddings to match against. The system would have to search for... everything? Nothing? It's a structural dead end.
+
+**Example 3 — Discovering unexpected relevance:**
+
+> User: "Set up CI/CD for the new microservice."
+
+ROOT.md shows: `k8s-infra: provisioning scripts, namespace conventions → knowledge/k8s-setup.md (2026-02-15)`. The agent realizes the project already has K8s conventions documented from a month ago and follows them — instead of setting up CI/CD from scratch with potentially conflicting patterns.
+
+RAG might find this if the agent thought to search "kubernetes" or "deployment" — but why would it? The user asked about CI/CD, not infrastructure conventions. The connection is only visible to an agent that already knows the full map of what it knows.
+
 ## Architecture — 3-Tier Memory
 
 Hipocampus organizes memory into three tiers, like a CPU cache hierarchy:
