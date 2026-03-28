@@ -83,13 +83,19 @@ ROOT.md eliminates both problems. At ~3K tokens, the agent knows exactly what it
 
 ## The Problem
 
-AI agents forget everything between sessions. Existing solutions each solve part of the problem:
+AI agents forget everything between sessions. But the real problem isn't forgetting — it's **not knowing what you know.**
+
+Consider: you ask your agent "refactor this API endpoint for the new payment flow." Three weeks ago, you and the agent had a long discussion about API rate limiting and decided on a token bucket strategy. That decision is recorded somewhere in the session logs. But the agent doesn't know it exists — so it refactors the endpoint without considering rate limits. The payment flow starts dropping requests under load a week later.
+
+This isn't a retrieval failure. The agent never searched for "rate limiting" because the user asked about "payment flow refactoring." **You can't search for something you don't know you know.** This is the memory awareness gap — and it's the hardest problem in agent memory.
+
+Existing solutions each solve part of the problem, but none solve this:
 
 **Working state files (SCRATCHPAD.md, WORKING.md)** give the agent awareness of what's currently happening — active tasks, pending decisions, recent context. But they're limited to the present. They can't tell the agent about a decision made three weeks ago or a pattern that emerged over months.
 
 **Long-term memory (MEMORY.md / platform auto memory)** persists facts and lessons across sessions. But system prompt space is finite — a 50-line memory works for the first week. After a month, hundreds of decisions and insights simply can't fit. You're forced to choose what to keep and what to lose. Worse, the agent doesn't know what it has forgotten.
 
-**RAG (vector search, BM25)** solves the storage problem — index thousands of files and search them. But search requires **knowing what to search for**. When a user asks "how should we handle session timeouts?", the agent doesn't know whether it discussed this exact problem three weeks ago. Without awareness that the knowledge exists, it defaults to external search or guessing. **You can't search for something you don't know you know.**
+**RAG (vector search, BM25)** solves the storage problem — index thousands of files and search them. But search requires a query, and a query requires suspecting that relevant context exists. Our [MemAware benchmark](https://github.com/kevin-hs-sohn/memaware) confirms this: BM25 search scores just 2.8% on implicit context recall — barely better than no memory at all (0.8%), while consuming 5x the tokens. Vector search does slightly better (3.4%) but still fails completely on cross-domain connections (0.7% on hard questions). **Search is a precision tool for known unknowns. It cannot help with unknown unknowns.**
 
 ### What each piece can and can't do
 
@@ -131,6 +137,30 @@ A RAG-based system would search "working on" and get nothing useful. Answering t
 ROOT.md shows: `k8s-infra: provisioning scripts, namespace conventions → knowledge/k8s-setup.md (2026-02-15)`. The agent realizes the project already has K8s conventions documented from a month ago and follows them — instead of setting up CI/CD from scratch with potentially conflicting patterns.
 
 RAG might find this if the agent thought to search "kubernetes" or "deployment" — but why would it? The user asked about CI/CD, not infrastructure conventions. The connection is only visible to an agent that already knows the full map of what it knows.
+
+## Benchmark Results
+
+Evaluated on [MemAware](https://github.com/kevin-hs-sohn/memaware) — the first benchmark for implicit memory awareness. 900 questions across 3 months of conversation history (~1,300 sessions). The agent must proactively surface relevant past context that the user never explicitly asks about.
+
+### Accuracy (% of questions where past context was correctly surfaced)
+
+| Method | Easy (n=300) | Medium (n=300) | Hard (n=300) | **Overall** |
+|--------|:---:|:---:|:---:|:---:|
+| No Memory | 1.0% | 0.7% | 0.7% | 0.8% |
+| BM25 Search | 4.7% | 1.7% | 2.0% | 2.8% |
+| BM25 + Vector Search | 6.0% | 3.7% | 0.7% | 3.4% |
+| **Hipocampus (tree only)** | **14.7%** | **5.7%** | **7.3%** | **9.2%** |
+| **Hipocampus + BM25** | **18.7%** | **10.0%** | **5.7%** | **11.4%** |
+| **Hipocampus + Vector** | **26.0%** | **18.0%** | **8.0%** | **17.3%** |
+
+**Key takeaways:**
+
+- **Hipocampus + Vector is 21.6x better than no memory** and 5.1x better than vector search alone
+- **On hard questions** (cross-domain connections with zero keyword overlap), Hipocampus scores 8.0% vs 0.7% for vector search — **11.4x better**. Search structurally cannot find these connections; the compaction tree can.
+- **Even without search**, Hipocampus (tree traversal only) scores 9.2% — 2.7x better than the best search-only approach. ROOT.md's topic index provides awareness that search cannot.
+- **Search without awareness hurts.** BM25 search (2.8%) barely beats no memory (0.8%) while consuming 5x the tokens. The search results add noise without adding signal.
+
+Difficulty tiers: **Easy** = keyword overlap exists between request and past context. **Medium** = same domain, different words. **Hard** = cross-domain, abstract reasoning required. See [MemAware](https://github.com/kevin-hs-sohn/memaware) for methodology, dataset, and how to evaluate your own memory system.
 
 ## Architecture — 3-Tier Memory
 
