@@ -48,6 +48,12 @@ if (command === "update") {
   // Skills are always overwritten, templates skip if exists
 }
 
+if (command === "uninstall") {
+  const uninstallPath = join(__dirname, "uninstall.mjs");
+  await import(uninstallPath);
+  process.exit(0);
+}
+
 if (command !== "init" && command !== "update") {
   console.error(`Unknown command: ${command}. Run 'hipocampus --help' for usage.`);
   process.exit(1);
