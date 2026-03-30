@@ -1,6 +1,6 @@
 # hipocampus
 
-Drop-in memory harness for AI agents. Zero infrastructure — just files.
+Drop-in **proactive memory** harness for AI agents. Zero infrastructure — just files.
 
 One command to set up. Works immediately with [Claude Code](https://claude.ai/code), [OpenCode](https://opencode.ai/), and [OpenClaw](https://github.com/openclaw).
 
