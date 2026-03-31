@@ -16,8 +16,11 @@ Evaluated on [MemAware](https://github.com/kevin-hs-sohn/memaware) — 900 impli
 | **Hipocampus (tree only)** | **14.7%** | **5.7%** | **7.3%** | **9.2%** |
 | **Hipocampus + BM25** | **18.7%** | **10.0%** | **5.7%** | **11.4%** |
 | **Hipocampus + Vector** | **26.0%** | **18.0%** | **8.0%** | **17.3%** |
+| **Hipocampus + Vector (10K ROOT)** | **34.0%** | **21.0%** | **8.0%** | **21.0%** |
 
 Hipocampus + Vector is **21.6x better than no memory** and **5.1x better than search alone**. On hard questions (cross-domain, zero keyword overlap), Hipocampus scores 8.0% vs 0.7% for vector search — **11.4x better**. Search structurally cannot find these connections; the compaction tree can.
+
+Increasing the ROOT.md budget from 3K to 10K tokens (120 topics vs 39) improves Easy from 26% to 34% and overall from 17.3% to 21.0% — more topic coverage means more connections found. Hard tier remains at 8.0%, indicating cross-domain reasoning is bottlenecked by the answer model, not the index size.
 
 ## Install
 
