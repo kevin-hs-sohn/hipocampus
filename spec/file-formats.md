@@ -430,3 +430,23 @@ Below threshold, copy or concatenate source files verbatim to prevent informatio
 - Minimum 50 bytes per node (even sparse periods deserve a node)
 - `status: tentative` while the period may still receive new data
 - `status: fixed` once the period has definitively ended — node is never modified again
+
+## Configuration — hipocampus.config.json
+
+```json
+{
+  "platform": "claude-code",          // Detected at init: claude-code | openclaw | opencode
+  "search": {
+    "vector": true,                    // Enable vector search (default: true)
+    "embedModel": "auto"               // Embedding model (default: auto)
+  },
+  "compaction": {
+    "rootMaxTokens": 3000,             // Max tokens for ROOT.md (default: 3000)
+    "cooldownHours": 3                 // Min hours between compaction runs (default: 3, 0 = disable)
+  }
+}
+```
+
+**Adaptive trigger thresholds** are hardcoded in `compact.mjs` (rawLines: 300, checkpoints: 5). They don't need config entries unless users request tuning.
+
+All fields are optional — missing fields use documented defaults.
