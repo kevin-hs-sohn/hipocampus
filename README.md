@@ -104,12 +104,12 @@ ROOT.md has four sections:
 - 2026-03: hipocampus open-source, qmd integration
 
 ## Topics Index
-- hipocampus: compaction tree, ROOT.md, skills → spec/
-- legal: Civil Act §750, tort liability → knowledge/legal-750.md
-- clawy.pro: K8s infra, provisioning, 80-bot deployment
+- hipocampus [project, 2d]: compaction tree, ROOT.md, skills → spec/
+- legal [reference, 14d]: Civil Act §750, tort liability → knowledge/legal-750.md
+- clawy.pro [project, 30d]: K8s infra, provisioning, 80-bot deployment
 ```
 
-The agent checks the **Topics Index** to decide in one glance: search memory, search externally, or answer from general knowledge. O(1) lookup — no file reads needed.
+Each topic carries a **type** (`project`, `feedback`, `user`, `reference`) and **age** — so the agent knows not just *what* it knows, but *what kind* of information it is and *how fresh* it is. O(1) lookup — no file reads needed.
 
 **Layer 2 — Warm (read on demand)**
 
@@ -148,6 +148,29 @@ Below threshold, source files are copied verbatim — no information loss. Above
 | Weekly → Monthly | ~500 lines | Concat | LLM summary |
 | Monthly → Root | Always | Recursive recompaction | — |
 
+### Memory Types
+
+Every memory entry is classified into one of four types, controlling how it's preserved over time:
+
+| Type | Purpose | Compaction behavior |
+|------|---------|-------------------|
+| `project` | Work, decisions, technical findings | Compressed when completed |
+| `feedback` | User corrections on approach | Always preserved verbatim |
+| `user` | User identity, expertise, preferences | Always preserved |
+| `reference` | External pointers (URLs, tools) | Preserved with staleness markers |
+
+`user` and `feedback` memories never get compressed away — they survive indefinitely. `project` memories compress into Historical Summary after completion. `reference` entries get a `[?]` marker after 30 days without verification.
+
+### Selective Recall
+
+When a question might relate to past memory, hipocampus uses a 3-step fallback:
+
+1. **ROOT.md triage (O(1))** — Topics Index lookup. Resolves most queries instantly.
+2. **Manifest-based LLM selection** — For cross-domain queries where keywords don't match. Reads compaction node frontmatter only (<500 tokens), LLM selects top 5 relevant files.
+3. **qmd search** — BM25/vector hybrid for specific keyword retrieval.
+
+Step 2 solves the keyword mismatch problem: "배포" ↔ "deployment", "CI/CD" ↔ "github-actions" — the LLM understands semantic connections that keyword search misses.
+
 ### Automatic Operation
 
 Everything runs automatically after `npx hipocampus init`:
@@ -155,12 +178,15 @@ Everything runs automatically after `npx hipocampus init`:
 | Mechanism | When | Cost |
 |-----------|------|------|
 | Session Start | First message — load hot files, check compaction | Read only |
-| End-of-Task Checkpoint | After every task — append to daily log | LLM (subagent) |
+| End-of-Task Checkpoint | After every task — typed entry to daily log | LLM (subagent) |
 | Proactive Flush | Every ~20 messages — prevent context loss | LLM (subagent) |
 | Pre-Compaction Hook | Before context compression — mechanical compact | Zero LLM |
+| Secret Scanning | During compaction — redact API keys, tokens | Zero LLM |
 | ROOT.md Auto-Load | Every session start | ~3K tokens |
 
 Memory writes are dispatched to subagents to keep the main session clean.
+
+**Adaptive compaction triggers:** Compaction runs when any condition is met — cooldown expired (default 3h), raw log exceeds 300 lines, or 5+ checkpoints accumulated. Active sessions compact more frequently; quiet days skip unnecessary work.
 
 ## Comparison
 
@@ -188,7 +214,7 @@ project/
 ├── knowledge/
 ├── plans/
 ├── hipocampus.config.json
-└── .claude/skills/hipocampus-*  # Agent skills
+└── .claude/skills/hipocampus-*  # Agent skills (5 skills)
 ```
 
 ## Configuration
@@ -197,7 +223,7 @@ project/
 {
   "platform": "claude-code",
   "search": { "vector": true, "embedModel": "auto" },
-  "compaction": { "rootMaxTokens": 3000 }
+  "compaction": { "rootMaxTokens": 3000, "cooldownHours": 3 }
 }
 ```
 
@@ -207,13 +233,15 @@ project/
 | `search.vector` | `true` | Enable vector embeddings (~2GB disk) |
 | `search.embedModel` | `"auto"` | `"auto"` for embeddinggemma-300M, `"qwen3"` for CJK |
 | `compaction.rootMaxTokens` | `3000` | Max token budget for ROOT.md |
+| `compaction.cooldownHours` | `3` | Min hours between compaction runs (0 = disable) |
 
 ## Skills
 
-Hipocampus installs four agent skills:
+Hipocampus installs five agent skills:
 
-- **hipocampus-core** — Session start protocol + end-of-task checkpoint
-- **hipocampus-compaction** — 5-level compaction tree builder
+- **hipocampus-core** — Session start protocol + typed checkpoints + exclusion rules
+- **hipocampus-compaction** — 5-level compaction tree with type-aware rules + secret scanning
+- **hipocampus-recall** — 3-step selective recall (ROOT.md → manifest LLM → qmd search)
 - **hipocampus-search** — Search guide: ROOT.md lookup, qmd, tree traversal
 - **hipocampus-flush** — Manual memory flush via subagent
 
