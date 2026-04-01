@@ -58,6 +58,9 @@ if (transcriptPath && existsSync(transcriptPath)) {
         writeFileSync(rawLogPath, `# ${today}\n${entry}`);
       }
       transcriptSaved = true;
+      // Count lines added for adaptive trigger
+      const addedLines = extracted ? extracted.split("\n").length : 0;
+      compactionState.rawLinesSinceLastCompaction = (compactionState.rawLinesSinceLastCompaction || 0) + addedLines;
     }
   } catch { /* transcript parsing failed — continue with compaction */ }
 }
@@ -116,6 +119,17 @@ if (existsSync(configPath)) {
 const DAILY_THRESHOLD = 200;
 const WEEKLY_THRESHOLD = 300;
 const MONTHLY_THRESHOLD = 500;
+
+// ─── Load compaction state ───
+
+const statePath = join(MEMORY, ".compaction-state.json");
+let compactionState = { lastCompactionRun: null, rawLinesSinceLastCompaction: 0, checkpointsSinceLastCompaction: 0 };
+if (existsSync(statePath)) {
+  try {
+    const parsed = JSON.parse(readFileSync(statePath, "utf8"));
+    compactionState = { ...compactionState, ...parsed };
+  } catch { /* use defaults */ }
+}
 
 // ─── Secret Scanner ───
 
@@ -347,6 +361,14 @@ for (const [month, weeks] of Object.entries(monthGroups)) {
 // ─── Step 4: Update ROOT.md + sync to MEMORY.md ───
 
 if (dailyUpdated || weeklyUpdated || monthlyUpdated) {
+  // Reset adaptive counters after compaction
+  compactionState.rawLinesSinceLastCompaction = 0;
+  compactionState.checkpointsSinceLastCompaction = 0;
+  compactionState.lastCompactionRun = new Date().toISOString();
+  try {
+    writeFileSync(statePath, JSON.stringify(compactionState, null, 2));
+  } catch { /* state write is best-effort */ }
+
   const rootPath = join(MEMORY, "ROOT.md");
   if (existsSync(rootPath)) {
     let rootContent = readFileSync(rootPath, "utf8");
