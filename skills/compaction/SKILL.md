@@ -64,6 +64,35 @@ Above threshold: generate LLM keyword-dense summary.
 | Weekly → Monthly | ~500 lines combined | LLM keyword-dense summary | Concat weeklies |
 | Monthly → Root | Always | Recursive recompaction | (N/A) |
 
+## Type-Aware Compaction
+
+### Memory Types
+
+Entries in daily logs are tagged: `## Topic [type]`. Four types exist:
+
+| Type | Compaction behavior |
+|------|-------------------|
+| `user` | Always preserve core content. Never compress to Historical Summary. |
+| `feedback` | Always preserve rule + why + how-to-apply structure. Never compress to Historical Summary. |
+| `project` | Completed → compress to Historical Summary. Active → keep in Active Context. |
+| `reference` | Preserve pointer + 1-line description. Mark `[?]` if >30 days unverified. |
+
+**Backward compat:** Untagged entries (no `[type]` in heading) → treat as `[project]`.
+
+### Topics Keyword Extraction
+
+At every compaction level, extract topic keywords from content and write to frontmatter `topics` field:
+- Scan headings (`## Topic [type]`) for keywords
+- Scan Key Decisions for decision keywords
+- Include type tag: `topics: [hipocampus [project], terse-responses [feedback]]`
+
+### Exclusion Filtering
+
+When generating LLM summaries, strip:
+- Code blocks (triple backtick) → replace with `→ filepath:lines`
+- Stack traces → 1-line error message
+- Entries containing "임시", "테스트 중", "나중에 삭제", "temporary", "test run", "delete later" → remove entirely
+
 ## Algorithm
 
 **CRITICAL — STRICT CHAIN ORDER: Steps 2→3→4→5 MUST execute in sequence. NEVER skip a level.**
@@ -193,9 +222,16 @@ last-updated: YYYY-MM-DD
 - YYYY-MM: key events
 
 ## Topics Index
-- topic-keyword: sub-keywords, references → knowledge/file.md
-- topic-keyword: sub-keywords
+- topic-keyword [type, Nd]: sub-keywords, references → knowledge/file.md
+- topic-keyword [type]: sub-keywords
 ```
+
+**Age calculation:** For each topic, find the most recent source-file date that mentions it. Compute days since that date. Write as `Nd` (e.g., `2d`, `30d`).
+
+**Type-specific root rules:**
+- `user`/`feedback` topics: always in Topics Index, never in Historical Summary only
+- `project` topics: active → Active Context + Topics Index; completed >90d → Historical Summary only (remove from Topics Index if root exceeds size cap)
+- `reference` topics: mark `[?]` if >30 days since last mention
 
 ### Step 6: OpenClaw ROOT.md Sync
 
