@@ -162,7 +162,13 @@ Steps:
    - Active Context and Topics Index are the highest-value sections — preserve them
 5. Set `status: tentative` (root is always tentative — it never becomes fixed)
 6. Update `last-updated: YYYY-MM-DD` in frontmatter
-7. Write to `memory/ROOT.md`
+7. **Calculate topic ages:** For each topic in the Topics Index:
+   - Find the most recent source-file date that mentions the topic
+   - Compute `age = today - most_recent_mention_date` in days
+   - Write as `Nd` suffix: `- topic [project, 5d]: sub-keywords`
+   - For `reference` topics with age >30d: add `?` marker: `- topic [reference, 45d, ?]: pointer`
+   - For `project` topics with age >90d: candidate for removal from Topics Index (move to Historical Summary if root exceeds size cap)
+8. Write to `memory/ROOT.md`
 
 **Example ROOT.md after Step 5:**
 
