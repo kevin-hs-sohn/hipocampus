@@ -109,6 +109,7 @@ When composing checkpoint content for the subagent, exclude:
 - File tree / directory listings — derivable from project
 - Stack traces — compress to 1-line error message
 - Content already in SCRATCHPAD/WORKING/TASK-QUEUE — no duplication
+- Ephemeral task state — only useful within current session
 
 ## File Size Targets
 

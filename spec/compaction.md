@@ -192,10 +192,10 @@ last-updated: 2026-03-15
 - 2026-03: hipocampus open-source, qmd integration, BM25+vector hybrid search
 
 ## Topics Index
-- hipocampus: compaction tree, ROOT.md, file-formats, skills → spec/
-- legal: Civil Act §750, tort liability, precedents → knowledge/legal-750.md
-- clawy.pro: K8s infra, provisioning, 80-bot deployment
-- qmd: BM25, vector hybrid, embeddinggemma-300M
+- hipocampus [project, 2d]: compaction tree, ROOT.md, file-formats, skills → spec/
+- legal [reference, 14d]: Civil Act §750, tort liability, precedents → knowledge/legal-750.md
+- clawy.pro [project, 30d]: K8s infra, provisioning, 80-bot deployment
+- qmd [project, 5d]: BM25, vector hybrid, embeddinggemma-300M
 ```
 
 ## Smart Threshold Table
@@ -242,7 +242,7 @@ Where `type` = project|feedback|user|reference, `Nd` = days since last mention, 
 2. Preserve `user`/`feedback` verbatim when possible
 3. `project`: summarize completed, preserve active
 4. `reference`: keep URL/pointer + 1-line description, drop surrounding context
-5. Apply exclusion rules: strip code blocks, stack traces, ephemeral markers ("임시", "temporary", "test run", "delete later")
+5. Apply exclusion rules: strip code blocks, stack traces, ephemeral markers ("임시", "테스트 중", "나중에 삭제", "temporary", "test run", "delete later")
 
 ## Guards
 

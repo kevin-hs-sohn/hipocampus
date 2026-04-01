@@ -38,6 +38,17 @@ if (args.includes("--stdin")) {
 
 const MEMORY = join(CWD, "memory");
 
+// ─── Load compaction state (before transcript — counter needs it) ───
+
+const statePath = join(MEMORY, ".compaction-state.json");
+let compactionState = { lastCompactionRun: null, rawLinesSinceLastCompaction: 0, checkpointsSinceLastCompaction: 0 };
+if (existsSync(statePath)) {
+  try {
+    const parsed = JSON.parse(readFileSync(statePath, "utf8"));
+    compactionState = { ...compactionState, ...parsed };
+  } catch { /* use defaults */ }
+}
+
 if (transcriptPath && existsSync(transcriptPath)) {
   mkdirSync(MEMORY, { recursive: true });
 
@@ -119,17 +130,6 @@ if (existsSync(configPath)) {
 const DAILY_THRESHOLD = 200;
 const WEEKLY_THRESHOLD = 300;
 const MONTHLY_THRESHOLD = 500;
-
-// ─── Load compaction state ───
-
-const statePath = join(MEMORY, ".compaction-state.json");
-let compactionState = { lastCompactionRun: null, rawLinesSinceLastCompaction: 0, checkpointsSinceLastCompaction: 0 };
-if (existsSync(statePath)) {
-  try {
-    const parsed = JSON.parse(readFileSync(statePath, "utf8"));
-    compactionState = { ...compactionState, ...parsed };
-  } catch { /* use defaults */ }
-}
 
 // ─── Secret Scanner ───
 
