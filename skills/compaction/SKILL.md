@@ -284,6 +284,17 @@ qmd embed
 - Keyword-dense format only — no prose, no narrative. Optimized for BM25 recall.
 - **If you feel tempted to "just update ROOT.md quickly" — STOP. Run the full chain.**
 
+## Agent Memory (Optional)
+
+If `memory/agents/compaction/AGENT.md` exists, read it before starting compaction. Use learned patterns to inform decisions (e.g., typical raw log size, common threshold behavior).
+
+After compaction completes, if you observed a new pattern worth remembering:
+- Append to `memory/agents/compaction/AGENT.md`
+- Keep under ~30 lines
+- Example patterns: "this project averages ~80 raw lines/day — daily threshold rarely hit", "weekly nodes frequently need LLM summary (>300 lines)"
+
+If no new patterns were observed, skip the update.
+
 ## Edge Cases
 
 - **Empty days:** No daily compaction node is generated for days without raw logs. Weekly naturally skips those days.
