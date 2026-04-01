@@ -128,22 +128,32 @@ Target: ~150 lines. When exceeded, remove completed items.
 
 ### WORKING.md
 
-Current task tracking.
+Current task tracking with structured recovery context.
 
 ```markdown
-# Active Tasks
+# Working
 
 (no active tasks)
 
 <!-- Format per task:
 ## [Task Name]
-- Status: in-progress | blocked | completed
 
-- Progress: brief description
+### Key Files
+- path/to/file.ext:line — what's there
+
+### Decisions
+- chose X over Y — reason
+
+### Errors & Corrections
+- error encountered → how it was fixed
+
+### Next Steps
+- [ ] immediate next action
+- [ ] following action
 -->
 ```
 
-Target: ~100 lines. When exceeded, remove completed tasks.
+Target: ~100 lines. When exceeded, remove completed tasks. The structured format (Key Files, Decisions, Errors & Corrections, Next Steps) ensures a new session can resume without re-reading all referenced files.
 
 ### TASK-QUEUE.md
 

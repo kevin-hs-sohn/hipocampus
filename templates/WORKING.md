@@ -1,9 +1,20 @@
-# Active Tasks
+# Working
 
 (no active tasks)
 
 <!-- Format per task:
 ## [Task Name]
-- Status: in-progress | blocked | completed
-- Progress: brief description
+
+### Key Files
+- path/to/file.ext:line — what's there
+
+### Decisions
+- chose X over Y — reason
+
+### Errors & Corrections
+- error encountered → how it was fixed
+
+### Next Steps
+- [ ] immediate next action
+- [ ] following action
 -->
