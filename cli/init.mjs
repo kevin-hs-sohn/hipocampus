@@ -103,7 +103,7 @@ if (noSearch) {
 
 // ─── Step 2: Create directories ───
 
-const dirs = ["memory", "memory/daily", "memory/weekly", "memory/monthly", "knowledge", "plans"];
+const dirs = ["memory", "memory/daily", "memory/weekly", "memory/monthly", "memory/agents/compaction", "memory/agents/recall", "knowledge", "plans"];
 for (const dir of dirs) {
   const p = join(CWD, dir);
   if (!existsSync(p)) {

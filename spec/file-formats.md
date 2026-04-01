@@ -373,6 +373,44 @@ patterns: pattern1, pattern2
 
 **Smart threshold:** If combined weekly nodes are below ~500 lines, concatenate them instead of generating an LLM summary. Above ~500 lines, generate a keyword-dense LLM summary.
 
+## Agent Memory
+
+Subagents (compaction, recall, flush) can persist learned patterns in per-agent memory files.
+
+### Directory Structure
+
+```
+memory/agents/
+├── compaction/
+│   └── AGENT.md
+├── recall/
+│   └── AGENT.md
+└── flush/
+    └── AGENT.md
+```
+
+### AGENT.md Format
+
+```markdown
+---
+agent: compaction
+updated: YYYY-MM-DD
+---
+
+## Learned Patterns
+- observation about this project's memory behavior
+
+## Tuning Notes
+- parameter observations and recommendations
+```
+
+**Rules:**
+- Each agent writes only to its own `AGENT.md`
+- AGENT.md is read at the start of each subagent dispatch (if it exists)
+- Updates are append-style: add new patterns, update existing ones
+- Target: ~30 lines per agent (trim oldest patterns if exceeded)
+- Optional: agents that have nothing to learn skip AGENT.md entirely
+
 ## Smart Threshold Table
 
 Below threshold, copy or concatenate source files verbatim to prevent information loss. Above threshold, generate a keyword-dense LLM summary.
