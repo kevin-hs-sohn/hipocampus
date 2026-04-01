@@ -162,6 +162,8 @@ topics: [keyword1, keyword2, keyword3]
 
 6. If date has changed (raw is from a past date): set `status: fixed`
 
+**Secret scanning:** The mechanical compaction (`hipocampus compact`) automatically redacts secrets in compaction nodes using regex patterns. When generating LLM summaries for above-threshold nodes, also avoid reproducing any API keys, tokens, passwords, or credentials from the source material. If you encounter a secret in the source, write `[REDACTED]` in its place.
+
 **CHECKPOINT:** Verify `memory/daily/` has the updated file before proceeding to Step 3.
 
 ### Step 3: Weekly Compaction (max 1 per cycle)
