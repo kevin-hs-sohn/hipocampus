@@ -112,6 +112,21 @@ Raw → [Step 2] → Daily → [Step 3] → Weekly → [Step 4] → Monthly → 
 - Skip Step 2 or 3 because "there's nothing new" — always verify by checking files
 - Touch ROOT.md directly without going through the full chain
 
+### Step 0: Pre-Compaction Snapshot
+
+Before starting the compaction chain, preserve current working state:
+
+1. Read `WORKING.md`
+2. If it contains active task content (not just the empty template):
+   - Append a snapshot to today's daily log (`memory/YYYY-MM-DD.md`):
+     ```
+     ## Working State Snapshot [project]
+     - context: pre-compaction automatic snapshot
+     - state: [copy WORKING.md content]
+     ```
+   - This ensures in-progress work is captured before any context compression
+3. If WORKING.md is empty or contains only the template, skip this step
+
 ### Step 1: Discover Candidates
 
 Scan `memory/` for raw files. Group by date, ISO week, and month. Check each group against trigger conditions.
