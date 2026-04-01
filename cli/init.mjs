@@ -197,7 +197,7 @@ const coreSkillSrc = isOpenCode
   : isOpenClaw
     ? { dir: join("platforms", "openclaw", "core"), name: "core" }
     : { dir: join("skills", "core"), name: "core" };
-const sharedSkillNames = ["compaction", "search", "flush"];
+const sharedSkillNames = ["compaction", "search", "flush", "recall"];
 const allSkills = [coreSkillSrc, ...sharedSkillNames.map(s => ({ dir: join("skills", s), name: s }))];
 const allSkillDests = ["hipocampus-core", ...sharedSkillNames.map(s => `hipocampus-${s}`)];
 
