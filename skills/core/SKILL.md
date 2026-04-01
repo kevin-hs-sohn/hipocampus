@@ -46,6 +46,10 @@ SCRATCHPAD.md, WORKING.md, TASK-QUEUE.md, memory/ROOT.md are auto-loaded via @im
    **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when cooldown is active.**
 **This procedure must be completed before responding to the user NO MATTER WHAT**
 
+## Memory Recall
+
+When the user's question may relate to past memory, use the `hipocampus-recall` skill for structured retrieval. See `hipocampus/skills/recall/SKILL.md`.
+
 ## End-of-Task Checkpoint (MANDATORY)
 
 After completing any task, **dispatch a subagent** to append a structured log to `memory/YYYY-MM-DD.md`.
@@ -54,12 +58,20 @@ Compose the subagent task:
 
 > Append the following to memory/YYYY-MM-DD.md:
 >
-> ## [Topic Name]
+> ## [Topic Name] [type]
 > - request: [what the user asked]
 > - analysis: [what you researched/analyzed]
 > - decisions: [choices made with rationale]
 > - outcome: [what was done, files changed]
 > - references: [knowledge/ files, external sources]
+>
+> Where `type` is: project | feedback | user | reference
+>
+> For feedback entries, use:
+> ## [Feedback Topic] [feedback]
+> - rule: [the behavioral rule]
+> - why: [reason given]
+> - how-to-apply: [when/where this applies]
 
 **The subagent only needs to do one thing: append to the daily log.** This is the source of truth — everything else (SCRATCHPAD, WORKING, TASK-QUEUE) is updated lazily at next session start or by the agent naturally during work.
 
@@ -78,6 +90,16 @@ Compose the subagent task:
 Compose the subagent task with a summary of what to dump, same as the checkpoint format. The subagent writes the file; the main session stays clean.
 
 This protects against context compression — if the platform compresses your conversation history, undumped details are lost forever. Write early, write often. The daily log is append-only, so multiple dumps in the same session are fine.
+
+## What NOT to Save
+
+When composing checkpoint content for the subagent, exclude:
+- Code snippets >5 lines — use file path + line range instead
+- git diff/log output — use commit hash instead
+- Debugging intermediate attempts — record final solution only
+- File tree / directory listings — derivable from project
+- Stack traces — compress to 1-line error message
+- Content already in SCRATCHPAD/WORKING/TASK-QUEUE — no duplication
 
 ## File Size Targets
 
