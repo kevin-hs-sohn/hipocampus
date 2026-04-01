@@ -43,13 +43,34 @@ After completing any task, **dispatch a subagent** to append a structured log to
 ### Daily log format
 
 ```markdown
-## [Topic Name]
+## [Topic Name] [type]
 - request: what the user asked
 - analysis: what you researched/analyzed
 - decisions: choices made with rationale
 - outcome: what was done, files changed
 - references: knowledge/ files, external sources
 ```
+
+Where `type` is one of: `project`, `feedback`, `user`, `reference`.
+
+#### Feedback type format
+
+```markdown
+## [Feedback Topic] [feedback]
+- rule: the behavioral rule
+- why: reason given
+- how-to-apply: when/where this applies
+```
+
+### What NOT to Save
+
+- Code snippets (>5 lines): Record file path + line range only
+- git diff/log output: Record commit hash only
+- Debugging intermediate attempts: Record final solution only
+- File tree / directory listings: Derivable from project
+- Stack traces: Compress to error message (1 line)
+- Content already in SCRATCHPAD/WORKING/TASK-QUEUE: No duplication
+- Ephemeral task state: Only useful within current session
 
 The subagent has no access to the conversation — you must provide the task summary.
 
