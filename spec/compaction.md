@@ -95,10 +95,11 @@ Group files by date, ISO week, and calendar month. Check trigger conditions at e
 3. Size check against ~200-line threshold:
    - Below threshold: copy raw log verbatim
    - Above threshold: generate keyword-dense LLM summary using daily node template
-4. Set `status: tentative` (date is still current) or `status: fixed` (date has changed)
-5. Write to `memory/daily/YYYY-MM-DD.md`
-6. Verify the written file is non-empty (>= 50 bytes)
-7. Re-index search: `qmd update` (+ `qmd embed` if vector enabled)
+4. Extract topic keywords from headings and key decisions, write to frontmatter `topics` field including type tags (e.g., `topics: auth [project], timezone [user], api-key [reference]`)
+5. Set `status: tentative` (date is still current) or `status: fixed` (date has changed)
+6. Write to `memory/daily/YYYY-MM-DD.md`
+7. Verify the written file is non-empty (>= 50 bytes)
+8. Re-index search: `qmd update` (+ `qmd embed` if vector enabled)
 
 Raw log is **kept** — the daily node is a compressed index, not a replacement.
 
@@ -209,6 +210,33 @@ To control cost, a single compaction cycle processes at most:
 - **1 root recompaction**
 
 If multiple candidates exist at a given level, process the most recent first. Remaining candidates will be processed in subsequent compaction cycles.
+
+## Type-Aware Compaction Rules
+
+### Type-Specific Behavior
+
+| Type | Compaction Behavior |
+|------|-------------------|
+| `user` | Always preserve. Never push to Historical Summary. |
+| `feedback` | Always preserve rule+why+how-to-apply. Never push to Historical Summary. |
+| `project` | Completed → compress to Historical Summary. Active → preserve in Active Context. |
+| `reference` | Preserve with `[?]` if >30 days since last mention. |
+
+### ROOT.md Topics Index with Types
+
+```
+- topic-keyword [type, Nd]: sub-keywords → reference
+```
+
+Where `type` = project|feedback|user|reference, `Nd` = days since last mention, `?` = needs verification (reference only).
+
+### Compaction Summary Rules
+
+1. Extract type tag from heading — default to `project` if missing
+2. Preserve `user`/`feedback` verbatim when possible
+3. `project`: summarize completed, preserve active
+4. `reference`: keep URL/pointer + 1-line description, drop surrounding context
+5. Apply exclusion rules: strip code blocks, stack traces, ephemeral markers ("임시", "temporary", "test run", "delete later")
 
 ## Guards
 
