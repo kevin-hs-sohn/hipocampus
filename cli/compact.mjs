@@ -117,6 +117,21 @@ const DAILY_THRESHOLD = 200;
 const WEEKLY_THRESHOLD = 300;
 const MONTHLY_THRESHOLD = 500;
 
+// ─── Secret Scanner ───
+
+const SECRET_PATTERNS = [
+  /(?:api[_-]?key|apikey)\s*[:=]\s*['"]?[A-Za-z0-9_\-]{20,}/i,
+  /(?:secret|password|passwd|pwd)\s*[:=]\s*['"]?[^\s'"]{8,}/i,
+  /(?:token)\s*[:=]\s*['"]?[A-Za-z0-9_\-\.]{20,}/i,
+  /(?:sk-|pk_live_|pk_test_|ghp_|gho_|github_pat_)[A-Za-z0-9_\-]{20,}/,
+  /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/,
+  /(?:Bearer\s+)[A-Za-z0-9_\-\.]{20,}/i,
+];
+
+const scanLine = (line) => SECRET_PATTERNS.some(p => p.test(line));
+const scanSecrets = (content) =>
+  content.split("\n").map(l => scanLine(l) ? "[REDACTED: secret detected]" : l).join("\n");
+
 // ─── Helper: count lines ───
 
 const countLines = (filePath) => {
@@ -183,10 +198,11 @@ for (const date of rawDates) {
   if (rawLines === 0) continue;
 
   if (rawLines <= DAILY_THRESHOLD) {
-    // Below threshold — copy verbatim
+    // Below threshold — copy verbatim (with secret redaction)
     const rawContent = readFileSync(rawPath, "utf8");
+    const safeContent = scanSecrets(rawContent);
     const frontmatter = `---\ntype: daily\nstatus: ${status}\nperiod: ${date}\nsource-files: [memory/${date}.md]\ntopics: []\n---\n\n`;
-    writeFileSync(dailyPath, frontmatter + rawContent);
+    writeFileSync(dailyPath, frontmatter + safeContent);
     dailyUpdated = true;
   } else if (!existsSync(dailyPath) || isToday) {
     // Above threshold — mark for agent processing
