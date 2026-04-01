@@ -38,12 +38,19 @@ SCRATCHPAD.md, WORKING.md, TASK-QUEUE.md, memory/ROOT.md are auto-loaded via @im
 **This procedure must be completed before responding to the user NO MATTER WHAT**
 1. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (cooldown-gated):**
    Read `memory/.compaction-state.json` and `hipocampus.config.json` (`compaction.cooldownHours`, default 3).
-   - **Within cooldown:** Skip compaction subagent — no dispatch needed.
-   - **Cooldown expired, file missing, or `cooldownHours` is 0:** Write `memory/.compaction-state.json` with `{ "lastCompactionRun": "<current ISO timestamp>" }`, then dispatch a subagent to run hipocampus:compaction skill (chain: Daily→Weekly→Monthly→Root), then run `hipocampus compact` + `qmd update` + `qmd embed`.
+
+   Compaction triggers (any ONE is sufficient):
+   - **Cooldown expired:** `cooldownHours` since `lastCompactionRun`
+   - **Raw volume:** `rawLinesSinceLastCompaction > 300`
+   - **Checkpoint count:** `checkpointsSinceLastCompaction > 5`
+   - **State file missing or `cooldownHours` is 0**
+
+   If no trigger is met: skip compaction subagent.
+   If any trigger is met: write `memory/.compaction-state.json` with `{ "lastCompactionRun": "<current ISO timestamp>", "rawLinesSinceLastCompaction": 0, "checkpointsSinceLastCompaction": 0 }`, then dispatch compaction subagent.
 
    State file is written immediately on dispatch (fire-and-forget), not after subagent completion. The cooldown tracks "a compaction was initiated," not "a compaction succeeded."
 
-   **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when cooldown is active.**
+   **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when no trigger is met.**
 **This procedure must be completed before responding to the user NO MATTER WHAT**
 
 ## Memory Recall
@@ -74,6 +81,8 @@ Compose the subagent task:
 > - how-to-apply: [when/where this applies]
 
 **The subagent only needs to do one thing: append to the daily log.** This is the source of truth — everything else (SCRATCHPAD, WORKING, TASK-QUEUE) is updated lazily at next session start or by the agent naturally during work.
+
+**After appending to the daily log,** the subagent should also increment the checkpoint counter in `memory/.compaction-state.json`: read the file, increment `checkpointsSinceLastCompaction` by 1, write back. If the file or field is missing, start from 0.
 
 **The subagent needs the task summary you provide** — it doesn't have access to the conversation.
 
