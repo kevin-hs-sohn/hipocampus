@@ -1,5 +1,60 @@
 # File Formats
 
+## Memory Types
+
+Every memory entry carries a type tag that controls compaction priority, expiration, and formatting.
+
+| Type | Description | Compaction Priority | Expires |
+|------|-------------|-------------------|---------|
+| `project` | Ongoing work, decisions, deliverables, technical findings | Medium | Yes (when completed) |
+| `feedback` | User corrections/confirmations on work approach | High (always preserve core) | No |
+| `user` | User identity, role, expertise, preferences | Highest (always preserve) | No |
+| `reference` | External system pointers (URLs, tools, dashboards) | Low | Yes (needs periodic verification) |
+
+### Type Tag Syntax
+
+In daily logs (headings):
+```markdown
+## Topic Name [type]
+```
+
+In ROOT.md Topics Index:
+```markdown
+- topic-keyword [type]: sub-keywords → reference
+- topic-keyword [type, Nd]: sub-keywords
+- topic-keyword [reference, Nd, ?]: sub-keywords
+```
+
+Where `Nd` = days since last mention, `?` = needs verification.
+
+### Feedback Type Structure
+
+```markdown
+## Feedback Topic [feedback]
+- rule: the behavioral rule
+- why: reason the user gave
+- how-to-apply: when/where this guidance kicks in
+```
+
+### Backward Compatibility
+
+Untagged entries (from before v0.5.0) are treated as `[project]` by default. Compaction adds tags during next regeneration — no migration needed.
+
+### What NOT to Save (Exclusion Rules)
+
+- Code snippets (>5 lines): Record file path + line range only
+- git diff/log output: Record commit hash only
+- Debugging intermediate attempts: Record final solution only
+- File tree / directory listings: Derivable from project
+- Stack traces: Compress to error message (1 line)
+- Content already in SCRATCHPAD/WORKING/TASK-QUEUE: No duplication
+- Ephemeral task state: Only useful within current session
+
+**Compaction-specific filtering:**
+- Code blocks (triple backtick) → replace with file path reference
+- Stack traces → 1-line error message
+- Entries with "임시", "테스트 중", "나중에 삭제", "temporary", "test run", "delete later" → remove
+
 ## Layer 1 Files
 
 ### MEMORY.md
@@ -126,8 +181,9 @@ last-updated: YYYY-MM-DD
 - YYYY-MM: key events
 
 ## Topics Index
-- topic-keyword: sub-keywords, references → knowledge/file.md
-- topic-keyword: sub-keywords
+- topic-keyword [project]: sub-keywords, references → knowledge/file.md
+- topic-keyword [feedback]: sub-keywords
+- topic-keyword [reference, Nd, ?]: sub-keywords
 ```
 
 **Format rules:**
@@ -162,10 +218,10 @@ last-updated: 2026-03-15
 - 2026-03: hipocampus open-source, qmd integration, BM25+vector hybrid search
 
 ## Topics Index
-- hipocampus: compaction tree, ROOT.md, file-formats, skills → spec/
-- legal: Civil Act §750, tort liability, precedents → knowledge/legal-750.md
-- clawy.pro: K8s infra, provisioning, 80-bot deployment
-- qmd: BM25, vector hybrid, embeddinggemma-300M
+- hipocampus [project]: compaction tree, ROOT.md, file-formats, skills → spec/
+- legal [project]: Civil Act §750, tort liability, precedents → knowledge/legal-750.md
+- clawy.pro [project, 30d]: K8s infra, provisioning, 80-bot deployment
+- qmd [reference]: BM25, vector hybrid, embeddinggemma-300M
 ```
 
 ## Layer 3 Files — Compaction Nodes
@@ -186,7 +242,7 @@ topics: keyword1, keyword2, keyword3, keyword4, keyword5
 ---
 
 ## Topics
-keyword1, keyword2, keyword3, keyword4, keyword5
+keyword1 [project], keyword2 [feedback], keyword3 [reference], keyword4 [project], keyword5 [user]
 
 ## Key Decisions
 - decision-keyword: chose X over Y — reason
