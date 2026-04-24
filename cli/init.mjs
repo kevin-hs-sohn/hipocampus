@@ -125,15 +125,15 @@ const isOpenCode = platformOverride
   ? platformOverride === "opencode"
   : existsSync(opencodeJson) || existsSync(opencodeDir);
 
-const isOpenClaw = !isOpenCode && (platformOverride
-  ? platformOverride === "openclaw"
-  : existsSync(agentsMd));
-
-const isCodex = !isOpenCode && !isOpenClaw && (platformOverride
+const isCodex = !isOpenCode && (platformOverride
   ? platformOverride === "codex"
   : existsSync(codexDir));
 
-const platform = isOpenCode ? "opencode" : isOpenClaw ? "openclaw" : isCodex ? "codex" : "claude-code";
+const isOpenClaw = !isOpenCode && !isCodex && (platformOverride
+  ? platformOverride === "openclaw"
+  : existsSync(agentsMd));
+
+const platform = isOpenCode ? "opencode" : isCodex ? "codex" : isOpenClaw ? "openclaw" : "claude-code";
 
 console.log(`  ~ platform: ${platform}`);
 
@@ -505,12 +505,19 @@ Run the Session Start protocol below FIRST (ALL steps. NO SKIP.) This takes prio
 3. **DO NOT SKIP** Read \`memory/ROOT.md\` — compaction root index (topic map of all memory)
 4. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (cooldown-gated):**
    Read \`memory/.compaction-state.json\` and \`hipocampus.config.json\` (\`compaction.cooldownHours\`, default 3).
-   - **Within cooldown:** Skip compaction subagent — no dispatch needed.
-   - **Cooldown expired, file missing, or \`cooldownHours\` is 0:** Write \`memory/.compaction-state.json\` with \`{ "lastCompactionRun": "<current ISO timestamp>" }\`, then dispatch a subagent to run hipocampus-compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\` + \`qmd embed\`.
+
+   Compaction triggers (any ONE is sufficient):
+   - **Cooldown expired:** \`cooldownHours\` since \`lastCompactionRun\`
+   - **Raw volume:** \`rawLinesSinceLastCompaction > 300\`
+   - **Checkpoint count:** \`checkpointsSinceLastCompaction > 5\`
+   - **State file missing or \`cooldownHours\` is 0**
+
+   If no trigger is met: skip compaction subagent.
+   If any trigger is met: write \`memory/.compaction-state.json\` with \`{ "lastCompactionRun": "<current ISO timestamp>", "rawLinesSinceLastCompaction": 0, "checkpointsSinceLastCompaction": 0 }\`, then dispatch a subagent to run hipocampus-compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run \`hipocampus compact\` + \`qmd update\` + \`qmd embed\`.
 
    State file is written immediately on dispatch (fire-and-forget), not after subagent completion. The cooldown tracks "a compaction was initiated," not "a compaction succeeded."
 
-   **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when cooldown is active.**
+   **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when no trigger is met.**
 **ALL 4 procedures must be completed before responding to the user NO MATTER WHAT**
 
 Note: Hipocampus hooks in \`.codex/hooks.json\` handle event-driven mechanical compaction.

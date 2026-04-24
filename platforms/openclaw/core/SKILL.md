@@ -42,15 +42,26 @@ MEMORY.md, USER.md, memory/ROOT.md (via Compaction Root section) are auto-loaded
 4. **DO NOT SKIP** Read `TASK-QUEUE.md` — pending items
 5. **DO NOT SKIP** **DO NOT COMPROMISE** **Compaction maintenance (cooldown-gated):**
    Read `memory/.compaction-state.json` and `hipocampus.config.json` (`compaction.cooldownHours`, default 3).
-   - **Within cooldown:** Skip compaction subagent — no dispatch needed.
-   - **Cooldown expired, file missing, or `cooldownHours` is 0:** Write `memory/.compaction-state.json` with `{ "lastCompactionRun": "<current ISO timestamp>" }`, then dispatch a subagent to run hipocampus:compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run `hipocampus compact` + `qmd update` + `qmd embed`.
+
+   Compaction triggers (any ONE is sufficient):
+   - **Cooldown expired:** `cooldownHours` since `lastCompactionRun`
+   - **Raw volume:** `rawLinesSinceLastCompaction > 300`
+   - **Checkpoint count:** `checkpointsSinceLastCompaction > 5`
+   - **State file missing or `cooldownHours` is 0**
+
+   If no trigger is met: skip compaction subagent.
+   If any trigger is met: write `memory/.compaction-state.json` with `{ "lastCompactionRun": "<current ISO timestamp>", "rawLinesSinceLastCompaction": 0, "checkpointsSinceLastCompaction": 0 }`, then dispatch a subagent to run hipocampus:compaction skill USING SUBAGENTS (chain: Daily→Weekly→Monthly→Root), then run `hipocampus compact` + `qmd update` + `qmd embed`.
 
    State file is written immediately on dispatch (fire-and-forget), not after subagent completion. The cooldown tracks "a compaction was initiated," not "a compaction succeeded."
 
-   **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when cooldown is active.**
+   **This step is MANDATORY every session. You MUST read the state file and make the judgment. The only thing that may be skipped is the subagent dispatch when no trigger is met.**
 **ALL 5 procedures must be completed before responding to the user NO MATTER WHAT**
 
 Note: HEARTBEAT.md also handles needs-summarization at every heartbeat (~30 min).
+
+## Memory Recall
+
+When the user's question may relate to past memory, use the `hipocampus-recall` skill for structured retrieval. See `skills/hipocampus-recall/SKILL.md`.
 
 ## Task Lifecycle (MANDATORY)
 
@@ -125,14 +136,24 @@ This is step 3 of Task End — run AFTER updating hot files (WORKING.md, SCRATCH
 
 > Append the following to memory/YYYY-MM-DD.md:
 >
-> ## [Topic Name]
+> ## [Topic Name] [type]
 > - request: [what the user asked]
 > - analysis: [what you researched/analyzed]
 > - decisions: [choices made with rationale]
 > - outcome: [what was done, files changed]
 > - references: [knowledge/ files, external sources]
+>
+> Where `type` is: project | feedback | user | reference
+>
+> For feedback entries, use:
+> ## [Feedback Topic] [feedback]
+> - rule: [the behavioral rule]
+> - why: [reason given]
+> - how-to-apply: [when/where this applies]
 
 **The subagent needs the task summary you provide** — it doesn't have access to the conversation.
+
+**After appending to the daily log,** the subagent should also increment the checkpoint counter in `memory/.compaction-state.json`: read the file, increment `checkpointsSinceLastCompaction` by 1, write back. If the file or field is missing, start from 0.
 
 ### Source of Truth
 
@@ -160,6 +181,18 @@ Compose the subagent task with a summary of what to dump, same as the checkpoint
 This protects against context compression — if the platform compresses your conversation history, undumped details are lost forever. Write early, write often. The daily log is append-only, so multiple dumps in the same session are fine.
 
 Proactive dumps do NOT trigger hot file updates (WORKING.md, SCRATCHPAD.md). Hot files are only updated at Task Start and Task End boundaries.
+
+## What NOT to Save
+
+When composing checkpoint content for the subagent, exclude:
+- **Secrets** — API keys, tokens, passwords, credentials. If encountered, write `[REDACTED]`.
+- Code snippets >5 lines — use file path + line range instead
+- git diff/log output — use commit hash instead
+- Debugging intermediate attempts — record final solution only
+- File tree / directory listings — derivable from project
+- Stack traces — compress to 1-line error message
+- Content already in SCRATCHPAD/WORKING/TASK-QUEUE — no duplication
+- Ephemeral task state — only useful within current session
 
 ## File Size Targets
 

@@ -103,6 +103,7 @@ This protects against context compression — if the platform compresses your co
 ## What NOT to Save
 
 When composing checkpoint content for the subagent, exclude:
+- **Secrets** — API keys, tokens, passwords, credentials. If encountered, write `[REDACTED]`.
 - Code snippets >5 lines — use file path + line range instead
 - git diff/log output — use commit hash instead
 - Debugging intermediate attempts — record final solution only
