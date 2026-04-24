@@ -131,6 +131,19 @@ if (platform === "claude-code") {
       }
     } catch { /* parse error */ }
   }
+} else if (platform === "codex") {
+  // Remove hooks from .codex/hooks.json
+  const hooksPath = join(CWD, ".codex", "hooks.json");
+  if (existsSync(hooksPath)) {
+    try {
+      let hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
+      if (Array.isArray(hooks)) {
+        hooks = hooks.filter(h => !h.command?.includes("hipocampus"));
+        writeFileSync(hooksPath, JSON.stringify(hooks, null, 2) + "\n");
+        console.log("  + removed hipocampus hooks from .codex/hooks.json");
+      }
+    } catch { /* parse error */ }
+  }
 } else if (platform === "openclaw") {
   const ocPath = join(CWD, "openclaw.json");
   if (existsSync(ocPath)) {
@@ -148,12 +161,14 @@ if (platform === "claude-code") {
 
 // ─── Step 2: Remove skills ───
 
-const skillNames = ["hipocampus-core", "hipocampus-compaction", "hipocampus-search", "hipocampus-flush"];
+const skillNames = ["hipocampus-core", "hipocampus-compaction", "hipocampus-search", "hipocampus-flush", "hipocampus-recall"];
 const skillsBase = platform === "opencode"
   ? join(CWD, ".opencode", "skills")
-  : platform === "openclaw"
-    ? join(CWD, "skills")
-    : join(CWD, ".claude", "skills");
+  : platform === "codex"
+    ? join(CWD, ".agents", "skills")
+    : platform === "openclaw"
+      ? join(CWD, "skills")
+      : join(CWD, ".claude", "skills");
 
 for (const skill of skillNames) {
   const skillDir = join(skillsBase, skill);
